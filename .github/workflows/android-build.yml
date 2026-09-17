@@ -25,11 +25,9 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install NDK and Build-Tools
         run: |
+          yes | sdkmanager --licenses || true
           sdkmanager --install "ndk;26.1.10909125" "build-tools;35.0.0" "platforms;android-35"
 
       - name: Setup Node.js
