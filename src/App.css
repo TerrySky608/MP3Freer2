@@ -2128,14 +2128,22 @@ body.is-car-landscape .sidebar {
 /* ------------------------------------------- */
 /* 移动端专属组件在桌面/Windows/宽屏下默认隐藏    */
 /* ------------------------------------------- */
-.mobile-nav-menu,
-.mobile-player-progress-bg,
-.mobile-player-progress-bar,
-.mobile-lyric-header,
-.mobile-lyric-bottom-bar,
-.mobile-lyric-corner-tools,
-.mobile-playlist-sheet-overlay,
-.my-music-mobile-container .mobile-subtabs-bar,
+@media (min-width: 769px) {
+  .mobile-nav-menu,
+  .mobile-player-progress-bg,
+  .mobile-player-progress-bar,
+  .mobile-lyric-header,
+  .mobile-lyric-bottom-bar,
+  .mobile-lyric-corner-tools,
+  .mobile-playlist-sheet-overlay,
+  .my-music-mobile-container .mobile-subtabs-bar {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    opacity: 0 !important;
+  }
+}
+
 html.is-desktop .mobile-player-progress-bar,
 html.is-desktop .mobile-lyric-corner-tools,
 html.is-desktop .mobile-lyric-bottom-bar,
@@ -2207,6 +2215,9 @@ body.is-desktop .mobile-playlist-sheet-overlay,
 
   .mobile-nav-menu {
     display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
     flex-direction: row;
     width: 100%;
     height: 100%;

@@ -1,7 +1,6 @@
 import React from 'react';
 import { Disc, Heart, ListMusic, Minus, Music, Search, Settings, Square, X, Keyboard, History, BarChart3, Sparkles } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { isMobileShell } from '../utils/platform';
 
 const isTauri = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
 
@@ -103,39 +102,37 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onOpe
         </li>
       </ul>
 
-      {/* 移动端专属 4 核心 Tab 底部栏 - 仅移动端环境渲染 */}
-      {isMobileShell() && (
-        <ul className="nav-menu mobile-nav-menu">
-          <li
-            className={`nav-item ${activeTab === 'search' ? 'active' : ''}`}
-            onClick={() => setActiveTab('search')}
-          >
-            <Search size={20} />
-            <span>发现</span>
-          </li>
-          <li
-            className={`nav-item ${['my', 'local', 'favorites', 'history', 'smart'].includes(activeTab) ? 'active' : ''}`}
-            onClick={() => setActiveTab('my')}
-          >
-            <Music size={20} />
-            <span>我的</span>
-          </li>
-          <li
-            className={`nav-item ${activeTab === 'playlist' ? 'active' : ''}`}
-            onClick={() => setActiveTab('playlist')}
-          >
-            <ListMusic size={20} />
-            <span>播放</span>
-          </li>
-          <li
-            className={`nav-item ${activeTab === 'about' ? 'active' : ''}`}
-            onClick={() => setActiveTab('about')}
-          >
-            <Settings size={20} />
-            <span>设置</span>
-          </li>
-        </ul>
-      )}
+      {/* 移动端专属 4 核心 Tab 底部栏 */}
+      <ul className="nav-menu mobile-nav-menu">
+        <li
+          className={`nav-item ${activeTab === 'search' ? 'active' : ''}`}
+          onClick={() => setActiveTab('search')}
+        >
+          <Search size={20} />
+          <span>发现</span>
+        </li>
+        <li
+          className={`nav-item ${['my', 'local', 'favorites', 'history', 'smart'].includes(activeTab) ? 'active' : ''}`}
+          onClick={() => setActiveTab('my')}
+        >
+          <Music size={20} />
+          <span>我的</span>
+        </li>
+        <li
+          className={`nav-item ${activeTab === 'playlist' ? 'active' : ''}`}
+          onClick={() => setActiveTab('playlist')}
+        >
+          <ListMusic size={20} />
+          <span>播放</span>
+        </li>
+        <li
+          className={`nav-item ${activeTab === 'about' ? 'active' : ''}`}
+          onClick={() => setActiveTab('about')}
+        >
+          <Settings size={20} />
+          <span>设置</span>
+        </li>
+      </ul>
     </aside>
   );
 };
