@@ -363,12 +363,22 @@ body {
   height: var(--player-height);
   background: rgba(15, 12, 30, 0.7);
   backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border-top: 1px solid var(--glass-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  z-index: 100;
+  z-index: 120;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.player-bar.in-lyric-view {
+  background: rgba(9, 7, 20, 0.82);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.55);
 }
 
 .player-left {
@@ -745,6 +755,8 @@ body {
   transition: transform 0.5s cubic-bezier(0.85, 0, 0.15, 1);
   transform: translateY(100%);
   overflow: hidden;
+  padding-bottom: var(--player-height);
+  box-sizing: border-box;
 }
 .lyric-view-fullscreen.open {
   transform: translateY(0);

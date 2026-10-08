@@ -12,6 +12,7 @@ async function universalFetch(url: string, options?: any) {
 }
 
 import { getEnabledApiEndpoints, getProxyUrl, AudioQuality, getQualityBr } from '../settings';
+import { lxSourceEngine } from './lxSourceAdapter';
 
 export interface OnlineSong {
   id: string;
@@ -265,7 +266,49 @@ export const MusicApiService = {
             }
           }
         } catch (err) {
-          console.warn('Official song search failed, falling back to third-party', err);
+          console.warn('Official netease search failed, falling back to third-party', err);
+        }
+      }
+
+      if (source === 'kuwo') {
+        const limit = 30;
+        const offset = (page - 1) * limit;
+        try {
+          const kwUrl = `http://search.kuwo.cn/r.s?client=kt&all=${encodeURIComponent(keyword)}&pn=${offset}&rn=${limit}&uid=794761770&ver=kwplayer_ar_9.2.2.1&vipver=1&show_copyright_off=1&newsearch=1&ft=music&cluster=0&strategy=2012&encoding=utf8&rformat=json&vermerge=1&mobi=1`;
+          const response = await universalFetch(kwUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Referer': 'http://www.kuwo.cn/'
+            }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (Array.isArray(data?.abslist) && data.abslist.length > 0) {
+              return data.abslist.map((item: any) => {
+                const songId = String(item.DC_TARGETID || item.id || item.MUSICRID?.replace('MUSIC_', '') || '');
+                const cover = item.hts_MVPIC || (item.web_albumpic_short ? `https://img1.kuwo.cn/star/albumcover/${item.web_albumpic_short}` : null) || (item.MVPIC ? `https://img4.kuwo.cn/wmvpic/${item.MVPIC}` : null);
+                const duration = Number(item.DURATION || item.duration || 0);
+                const hasHires = !!(item.N_MINFO && (item.N_MINFO.includes('flac') || item.N_MINFO.includes('zp')));
+                return {
+                  id: songId,
+                  name: firstString(item.SONGNAME, item.NAME, item.name, '未知歌曲'),
+                  artist: firstString(item.ARTIST, item.FARTIST, item.artist, '未知歌手'),
+                  album: firstString(item.ALBUM, item.album, '未知专辑'),
+                  albumId: item.ALBUMID ? String(item.ALBUMID) : undefined,
+                  source: 'kuwo',
+                  url_id: songId,
+                  pic_id: songId,
+                  lyric_id: songId,
+                  pic: resolveImageUrl(cover) || null,
+                  url: null,
+                  duration,
+                  has_hires: hasHires,
+                };
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Official kuwo search failed, falling back to third-party', err);
         }
       }
 
@@ -466,6 +509,25 @@ export const MusicApiService = {
       }
     }
 
+    // 梯队 5：内置洛雪自定义音源引擎（墨澜多后端自动容灾与无损直链解析）
+    try {
+      const lxUrl = await lxSourceEngine.getSongUrl(
+        source,
+        {
+          id: songId,
+          url_id: songId,
+          name: extraInfo?.name || '',
+          artist: extraInfo?.singer || extraInfo?.artist || ''
+        },
+        q
+      );
+      if (lxUrl) {
+        addCandidate(lxUrl);
+      }
+    } catch (e) {
+      console.warn('LX Source Engine resolve failed:', e);
+    }
+
     return candidateUrls;
   },
 
@@ -488,6 +550,28 @@ export const MusicApiService = {
           }
         } catch (e) {
           console.warn('Official getSongLyric failed', e);
+        }
+      }
+
+      if (source === 'kuwo') {
+        try {
+          const response = await universalFetch(`http://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=${lyricId}`);
+          if (response.ok) {
+            const data = await response.json();
+            const lrclist = data?.data?.lrclist;
+            if (Array.isArray(lrclist) && lrclist.length > 0) {
+              const original = lrclist.map((l: any) => {
+                const t = Number(l.time || 0);
+                const m = Math.floor(t / 60);
+                const s = (t % 60).toFixed(2);
+                const timeStr = `[${String(m).padStart(2, '0')}:${String(s).padStart(5, '0')}]`;
+                return `${timeStr}${l.lineLyric || ''}`;
+              }).join('\n');
+              return { original, translated: '', romanized: '' };
+            }
+          }
+        } catch (e) {
+          console.warn('Official kuwo getSongLyric failed', e);
         }
       }
 
@@ -520,6 +604,19 @@ export const MusicApiService = {
           }
         } catch (e) {
           console.warn('Official getSongPic failed', e);
+        }
+      }
+
+      if (source === 'kuwo') {
+        try {
+          const response = await universalFetch(`http://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=${picId}`);
+          if (response.ok) {
+            const data = await response.json();
+            const pic = data?.data?.songinfo?.pic || data?.data?.songinfo?.mvpic;
+            if (pic) return resolveImageUrl(pic);
+          }
+        } catch (e) {
+          console.warn('Official kuwo getSongPic failed', e);
         }
       }
 

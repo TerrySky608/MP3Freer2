@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { AlertCircle, Disc, Cloud, Download, Upload, RefreshCw } from 'lucide-react';
+import { AlertCircle, Disc, Cloud, Download, Upload, RefreshCw, Sparkles } from 'lucide-react';
 import {
   API_ENDPOINT_INFOS,
   APP_VERSION,
@@ -166,6 +166,40 @@ export const AboutPanel: React.FC = () => {
                     </div>
                   </label>
                 ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="setting-row" style={{ alignItems: 'flex-start' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Sparkles size={16} style={{ color: '#ec4899' }} />
+                <span style={{ fontWeight: 600, fontSize: 14 }}>内置扩展音源引擎（洛雪自定义源沙箱）</span>
+              </div>
+              <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
+                系统已自动挂载内置的沙箱音源引擎，当第三方 API 节点受限或无版权时自动激活多平台备用直链解析。
+              </p>
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: '10px 14px',
+                  background: 'rgba(236, 72, 153, 0.08)',
+                  borderRadius: 8,
+                  border: '1px solid rgba(236, 72, 153, 0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13, color: '#f472b6' }}>墨澜聚合音源 v4.5.1</span>
+                    <span style={{ fontSize: 10, background: '#10b981', color: '#fff', padding: '1px 5px', borderRadius: 4 }}>已就绪</span>
+                  </div>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, display: 'block' }}>
+                    全平台支持 FLAC 无损；酷我 / QQ / 网易 / 酷狗 / 咪咕多平台自动故障转移轮询
+                  </span>
+                </div>
               </div>
             </div>
           </div>

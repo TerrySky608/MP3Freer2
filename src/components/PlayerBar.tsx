@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
-  Repeat, Repeat1, Shuffle, Maximize2, Loader2, Heart, MonitorSpeaker, Disc
+  Repeat, Repeat1, Shuffle, Maximize2, Minimize2, Loader2, Heart, MonitorSpeaker, Disc
 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { usePlaybackProgress } from '../services/playbackProgress';
@@ -11,9 +11,10 @@ import { isAndroid, isMobileShell } from '../utils/platform';
 
 interface PlayerBarProps {
   onToggleFullscreen: () => void;
+  isLyricOpen?: boolean;
 }
 
-export const PlayerBar: React.FC<PlayerBarProps> = ({ onToggleFullscreen }) => {
+export const PlayerBar: React.FC<PlayerBarProps> = ({ onToggleFullscreen, isLyricOpen = false }) => {
   const {
     currentSong,
     isLoading,
@@ -97,7 +98,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ onToggleFullscreen }) => {
   }, [currentSong]);
 
   return (
-    <div className="player-bar">
+    <div className={`player-bar ${isLyricOpen ? 'in-lyric-view' : ''}`}>
       {/* 移动端顶部可拖动进度指示条（带滑轨与滑块）- 仅移动端环境渲染 */}
       {isMobileShell() && (
         <div className="mobile-player-progress-bar">
@@ -260,8 +261,13 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ onToggleFullscreen }) => {
           </button>
         )}
 
-        <button className="control-btn mobile-hide-btn" onClick={onToggleFullscreen} title="歌词面板">
-          <Maximize2 size={16} />
+        <button
+          className="control-btn mobile-hide-btn"
+          onClick={onToggleFullscreen}
+          title={isLyricOpen ? "收起全屏歌词" : "展开全屏歌词"}
+          style={{ color: isLyricOpen ? 'var(--primary-hover)' : undefined }}
+        >
+          {isLyricOpen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
         </button>
 
         <div className="volume-container mobile-hide-btn">

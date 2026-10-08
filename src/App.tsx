@@ -76,7 +76,10 @@ function MainLayout() {
         <div style={{ display: panelDisplay('about', activeTab), height: '100%' }}><AboutPanel /></div>
       </main>
 
-      <PlayerBar onToggleFullscreen={() => setIsLyricOpen(prev => !prev)} />
+      <PlayerBar
+        onToggleFullscreen={() => setIsLyricOpen(prev => !prev)}
+        isLyricOpen={isLyricOpen}
+      />
       <LyricView isOpen={isLyricOpen} onClose={() => setIsLyricOpen(false)} />
 
       <ShortcutHelpModal

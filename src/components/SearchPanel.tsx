@@ -3,7 +3,7 @@ import { ArrowLeft, Loader2, Play, Plus, Search, Music, Heart, ArrowUp, X } from
 import { MusicApiService, OnlinePlaylist, OnlineSong, PlaylistDetail } from '../services/musicApi';
 import { usePlayer, FavoriteArtist } from '../context/PlayerContext';
 import { useToast } from '../context/ToastContext';
-import { getDefaultSearchSource, MUSIC_SOURCES } from '../settings';
+import { getDefaultSearchSource, setDefaultSearchSource, MUSIC_SOURCES, MusicSource } from '../settings';
 import { toPlayerSong } from '../utils/songUtils';
 import { ArtistBanner } from './ArtistBanner';
 import { DiscoveryView } from './DiscoveryView';
@@ -57,6 +57,7 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
   const [playlistLoading, setPlaylistLoading] = useState<boolean>(false);
   
   const [matchedArtist, setMatchedArtist] = useState<FavoriteArtist | null>(null);
+  const [currentSource, setCurrentSource] = useState<MusicSource>(getDefaultSearchSource);
   
   const loadingMoreRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -144,8 +145,8 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
     return merged;
   };
 
-  const searchTracks = async (term: string, targetPage: number, append: boolean) => {
-    const source = getDefaultSearchSource();
+  const searchTracks = async (term: string, targetPage: number, append: boolean, sourceOverride?: MusicSource) => {
+    const source = sourceOverride || currentSource;
     const [results, artistResult] = await Promise.all([
       MusicApiService.searchSongs(term, source, targetPage),
       !append ? MusicApiService.searchArtist(term) : Promise.resolve(null)
@@ -159,6 +160,24 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
     setPlaylistResults([]);
     setPage(targetPage);
     setHasMore(results.length >= PAGE_SIZE);
+  };
+
+  const handleSourceChange = (newSource: MusicSource) => {
+    setCurrentSource(newSource);
+    setDefaultSearchSource(newSource);
+    if (activeKeyword.trim()) {
+      setLoading(true);
+      setPage(1);
+      setHasMore(false);
+      searchTracks(activeKeyword.trim(), 1, false, newSource)
+        .catch((err: any) => {
+          console.error(err);
+          toast.error(`${TEXT.searchError}\n${err instanceof Error ? err.message : TEXT.unknownError}`);
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }
   };
 
   const searchPlaylistsPage = async (term: string, targetPage: number, append: boolean) => {
@@ -416,27 +435,46 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
             </button>
           </div>
 
-          <div className="type-selectors">
-            <label className={`type-radio ${searchType === 'track' ? 'active' : ''}`}>
-              <input
-                type="radio"
-                name="searchType"
-                checked={searchType === 'track'}
-                onChange={() => setSearchType('track')}
-                style={{ display: 'none' }}
-              />
-              <span>{TEXT.tracks}</span>
-            </label>
-            <label className={`type-radio ${searchType === 'playlist' ? 'active' : ''}`}>
-              <input
-                type="radio"
-                name="searchType"
-                checked={searchType === 'playlist'}
-                onChange={() => setSearchType('playlist')}
-                style={{ display: 'none' }}
-              />
-              <span>{TEXT.playlists}</span>
-            </label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <div className="type-selectors" style={{ margin: 0 }}>
+              <label className={`type-radio ${searchType === 'track' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name="searchType"
+                  checked={searchType === 'track'}
+                  onChange={() => setSearchType('track')}
+                  style={{ display: 'none' }}
+                />
+                <span>{TEXT.tracks}</span>
+              </label>
+              <label className={`type-radio ${searchType === 'playlist' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name="searchType"
+                  checked={searchType === 'playlist'}
+                  onChange={() => setSearchType('playlist')}
+                  style={{ display: 'none' }}
+                />
+                <span>{TEXT.playlists}</span>
+              </label>
+            </div>
+
+            {searchType === 'track' && (
+              <div className="source-selectors" style={{ margin: 0, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {MUSIC_SOURCES.map((source) => (
+                  <button
+                    key={source.id}
+                    type="button"
+                    className={`source-tab ${currentSource === source.id ? 'active' : ''}`}
+                    onClick={() => handleSourceChange(source.id)}
+                    style={{ padding: '4px 10px', fontSize: 12, borderRadius: 16 }}
+                    title={`切换搜索平台: ${source.name}`}
+                  >
+                    {source.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </form>
       </div>
