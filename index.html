@@ -40,6 +40,24 @@
     </style>
     <script>
       (function () {
+        // 强制注销历史残留的 Service Worker 并清空 CacheStorage，确保加载最新前端资源
+        try {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function (regs) {
+              for (var i = 0; i < regs.length; i++) {
+                regs[i].unregister();
+              }
+            }).catch(function () {});
+          }
+          if ('caches' in window) {
+            caches.keys().then(function (keys) {
+              for (var j = 0; j < keys.length; j++) {
+                caches.delete(keys[j]);
+              }
+            }).catch(function () {});
+          }
+        } catch (_e) {}
+
         var ua = navigator.userAgent || '';
         if (/Android/i.test(ua) && !/Windows/i.test(ua)) {
           document.documentElement.classList.remove('is-desktop');

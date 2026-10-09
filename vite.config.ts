@@ -1,6 +1,5 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { VitePWA } from "vite-plugin-pwa";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -13,37 +12,7 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [
-    react(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
-      },
-      manifest: {
-        name: 'MP3韬',
-        short_name: 'MP3韬',
-        description: 'MP3韬 - 自由听你想听的音乐',
-        theme_color: '#0f0a1a',
-        background_color: '#0f0a1a',
-        display: 'standalone',
-        orientation: 'any',
-        icons: [
-          {
-            src: '/mp3tao-app-icon.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any maskable'
-          },
-          {
-            src: '/mp3tao-app-icon.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
-          }
-        ]
-      }
-    })
+    react()
   ],
 
   // esbuild 预构建 + 源码转换阶段的目标
