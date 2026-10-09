@@ -274,11 +274,11 @@ export const MusicApiService = {
         const limit = 30;
         const offset = (page - 1) * limit;
         try {
-          const kwUrl = `http://search.kuwo.cn/r.s?client=kt&all=${encodeURIComponent(keyword)}&pn=${offset}&rn=${limit}&uid=794761770&ver=kwplayer_ar_9.2.2.1&vipver=1&show_copyright_off=1&newsearch=1&ft=music&cluster=0&strategy=2012&encoding=utf8&rformat=json&vermerge=1&mobi=1`;
+          const kwUrl = `https://search.kuwo.cn/r.s?client=kt&all=${encodeURIComponent(keyword)}&pn=${offset}&rn=${limit}&uid=794761770&ver=kwplayer_ar_9.2.2.1&vipver=1&show_copyright_off=1&newsearch=1&ft=music&cluster=0&strategy=2012&encoding=utf8&rformat=json&vermerge=1&mobi=1`;
           const response = await universalFetch(kwUrl, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Referer': 'http://www.kuwo.cn/'
+              'Referer': 'https://www.kuwo.cn/'
             }
           });
           if (response.ok) {
@@ -312,18 +312,137 @@ export const MusicApiService = {
         }
       }
 
-      const data = await postRequest('search', {
-        count: '30',
-        source,
-        pages: String(page),
-        name: keyword,
-      });
+      if (source === 'tencent') {
+        const limit = 30;
+        try {
+          const qqUrl = `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?p=${page}&n=${limit}&w=${encodeURIComponent(keyword)}&format=json`;
+          const response = await universalFetch(qqUrl, {
+            headers: { 'Referer': 'https://y.qq.com/' }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const songList = data?.data?.song?.list;
+            if (Array.isArray(songList) && songList.length > 0) {
+              return songList.map((item: any) => {
+                const songId = String(item.songmid || item.songid || '');
+                const singer = Array.isArray(item.singer) ? item.singer.map((s: any) => s.name).join(', ') : '未知歌手';
+                const album = item.albumname || '未知专辑';
+                const albumId = item.albummid ? String(item.albummid) : undefined;
+                const cover = item.albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${item.albummid}.jpg` : null;
+                return {
+                  id: songId,
+                  name: firstString(item.songname, '未知歌曲'),
+                  artist: singer,
+                  album,
+                  albumId,
+                  source: 'tencent',
+                  url_id: songId,
+                  pic_id: songId,
+                  lyric_id: songId,
+                  pic: resolveImageUrl(cover) || null,
+                  url: null,
+                  duration: Number(item.interval || 0),
+                  has_hires: !!(item.sizeflac && item.sizeflac > 0),
+                };
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Official tencent search failed, falling back to third-party', err);
+        }
+      }
 
-      if (!Array.isArray(data)) return [];
-      return data.map((item: any) => mapOnlineSong(item, source));
+      if (source === 'kugou') {
+        const limit = 30;
+        try {
+          const kgUrl = `https://songsearch.kugou.com/song_search_v2?keyword=${encodeURIComponent(keyword)}&page=${page}&pagesize=${limit}&clientver=&platform=WebFilter`;
+          const response = await universalFetch(kgUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const songList = data?.data?.lists;
+            if (Array.isArray(songList) && songList.length > 0) {
+              return songList.map((item: any) => {
+                const songId = String(item.SQFileHash || item.HQFileHash || item.FileHash || '');
+                return {
+                  id: songId,
+                  name: firstString(item.SongName, '未知歌曲'),
+                  artist: firstString(item.SingerName, '未知歌手'),
+                  album: firstString(item.AlbumName, '未知专辑'),
+                  albumId: item.AlbumID ? String(item.AlbumID) : undefined,
+                  source: 'kugou',
+                  url_id: songId,
+                  pic_id: songId,
+                  lyric_id: songId,
+                  pic: null,
+                  url: null,
+                  duration: Number(item.Duration || 0),
+                  has_hires: !!item.SQFileHash,
+                };
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Official kugou search failed, falling back to third-party', err);
+        }
+      }
+
+      if (source === 'migu') {
+        const limit = 30;
+        try {
+          const mgUrl = `https://pd.musicapp.migu.cn/MIGUM2.0/v1.0/content/search_all.do?text=${encodeURIComponent(keyword)}&pageNo=${page}&pageSize=${limit}&searchSwitch={song:1}`;
+          const response = await universalFetch(mgUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const songList = data?.songResultData?.result;
+            if (Array.isArray(songList) && songList.length > 0) {
+              return songList.map((item: any) => {
+                const songId = String(item.id || item.copyrightId || '');
+                const singer = Array.isArray(item.singers) ? item.singers.map((s: any) => s.name).join(', ') : '未知歌手';
+                const album = item.albums?.[0]?.name || '未知专辑';
+                const cover = item.imgItems?.[0]?.img || null;
+                return {
+                  id: songId,
+                  name: firstString(item.name, '未知歌曲'),
+                  artist: singer,
+                  album,
+                  source: 'migu',
+                  url_id: songId,
+                  pic_id: songId,
+                  lyric_id: String(item.copyrightId || songId),
+                  pic: resolveImageUrl(cover) || null,
+                  url: null,
+                  duration: 0,
+                  has_hires: false,
+                };
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Official migu search failed, falling back to third-party', err);
+        }
+      }
+
+      try {
+        const data = await postRequest('search', {
+          count: '30',
+          source,
+          pages: String(page),
+          name: keyword,
+        });
+
+        if (!Array.isArray(data)) return [];
+        return data.map((item: any) => mapOnlineSong(item, source));
+      } catch (err) {
+        console.warn('Fallback search failed for source:', source, err);
+        return [];
+      }
     } catch (err) {
       console.error('Search songs error:', err);
-      throw err;
+      return [];
     }
   },
 
@@ -555,7 +674,7 @@ export const MusicApiService = {
 
       if (source === 'kuwo') {
         try {
-          const response = await universalFetch(`http://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=${lyricId}`);
+          const response = await universalFetch(`https://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=${lyricId}`);
           if (response.ok) {
             const data = await response.json();
             const lrclist = data?.data?.lrclist;
@@ -575,12 +694,37 @@ export const MusicApiService = {
         }
       }
 
-      const data = await postRequest('lyric', { id: lyricId, source });
-      return {
-        original: data?.lyric || '',
-        translated: data?.tlyric || '',
-        romanized: data?.roma || '',
-      };
+      if (source === 'tencent') {
+        try {
+          const response = await universalFetch(`https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=${lyricId}&format=json&nobase64=1`, {
+            headers: { 'Referer': 'https://y.qq.com/' }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data?.lyric) {
+              return {
+                original: data.lyric,
+                translated: data.trans || '',
+                romanized: '',
+              };
+            }
+          }
+        } catch (e) {
+          console.warn('Official tencent getSongLyric failed', e);
+        }
+      }
+
+      try {
+        const data = await postRequest('lyric', { id: lyricId, source });
+        return {
+          original: data?.lyric || '',
+          translated: data?.tlyric || '',
+          romanized: data?.roma || '',
+        };
+      } catch (err) {
+        console.warn(`Fallback get lyric error (ID: ${lyricId}, Source: ${source}):`, err);
+        return empty;
+      }
     } catch (err) {
       console.error(`Get lyric error (ID: ${lyricId}, Source: ${source}):`, err);
       return empty;
@@ -609,7 +753,7 @@ export const MusicApiService = {
 
       if (source === 'kuwo') {
         try {
-          const response = await universalFetch(`http://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=${picId}`);
+          const response = await universalFetch(`https://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=${picId}`);
           if (response.ok) {
             const data = await response.json();
             const pic = data?.data?.songinfo?.pic || data?.data?.songinfo?.mvpic;
@@ -620,8 +764,13 @@ export const MusicApiService = {
         }
       }
 
-      const data = await postRequest('pic', { id: picId, source, size: String(size) });
-      return resolveImageUrl(data?.url) || null;
+      try {
+        const data = await postRequest('pic', { id: picId, source, size: String(size) });
+        return resolveImageUrl(data?.url) || null;
+      } catch (err) {
+        console.warn(`Fallback get pic error (ID: ${picId}, Source: ${source}):`, err);
+        return null;
+      }
     } catch (err) {
       console.error(`Get pic error (ID: ${picId}, Source: ${source}):`, err);
       return null;

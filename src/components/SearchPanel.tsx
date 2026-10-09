@@ -165,11 +165,13 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
   const handleSourceChange = (newSource: MusicSource) => {
     setCurrentSource(newSource);
     setDefaultSearchSource(newSource);
-    if (activeKeyword.trim()) {
+    const term = (activeKeyword || keyword).trim();
+    if (term) {
+      setActiveKeyword(term);
       setLoading(true);
       setPage(1);
       setHasMore(false);
-      searchTracks(activeKeyword.trim(), 1, false, newSource)
+      searchTracks(term, 1, false, newSource)
         .catch((err: any) => {
           console.error(err);
           toast.error(`${TEXT.searchError}\n${err instanceof Error ? err.message : TEXT.unknownError}`);

@@ -3760,7 +3760,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-app"
-version = "26.7.17"
+version = "26.8.21"
 dependencies = [
  "futures-util",
  "lofty",
