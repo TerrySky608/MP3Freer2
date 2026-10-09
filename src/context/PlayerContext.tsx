@@ -138,7 +138,16 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // 避免闭包捕获陈旧的 isPlaying（loadSongDetails 的 race 修复）。
   const isPlayingRef = useRef<boolean>(false);
   const [playMode, setPlayMode] = useState<PlayMode>('list-loop');
-  const [volume, setVolume] = useState<number>(0.5);
+  const [volume, setVolume] = useState<number>(() => {
+    const saved = storage.getString(StorageKeys.VOLUME);
+    if (saved !== null) {
+      const parsed = parseFloat(saved);
+      if (!isNaN(parsed) && parsed >= 0 && parsed <= 1) {
+        return parsed;
+      }
+    }
+    return 1; // 首次启动默认 100%
+  });
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [currentLyricIndex, setCurrentLyricIndex] = useState<number>(-1);
   const [localSongs, setLocalSongs] = useState<Song[]>([]);
@@ -994,6 +1003,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const setVolumeLevel = (vol: number) => {
     const safeVol = Math.max(0, Math.min(1, vol));
     setVolume(safeVol);
+    storage.setString(StorageKeys.VOLUME, String(safeVol));
     if (audioRef.current) audioRef.current.volume = safeVol;
   };
 

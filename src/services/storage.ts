@@ -60,4 +60,5 @@ export const StorageKeys = {
   FAVORITE_ARTISTS: 'mp3freer_favorite_artists',
   SHOW_TRANSLATION: 'mp3freer_show_translation',
   LOCAL_DIRECTORY: 'local_directory_key',
+  VOLUME: 'mp3freer_volume',
 } as const;

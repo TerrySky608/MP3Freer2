@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
   Repeat, Repeat1, Shuffle, Maximize2, Minimize2, Loader2, Heart, MonitorSpeaker, Disc
@@ -33,6 +33,13 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ onToggleFullscreen, isLyri
   const { currentTime, duration, isPlaying } = usePlaybackProgress();
 
   const [overlayOn, setOverlayOn] = useState<boolean>(false);
+  const prevVolumeRef = useRef<number>(1);
+
+  useEffect(() => {
+    if (volume > 0) {
+      prevVolumeRef.current = volume;
+    }
+  }, [volume]);
 
   const handleToggleOverlay = async () => {
     try {
@@ -66,9 +73,10 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ onToggleFullscreen, isLyri
 
   const toggleMute = () => {
     if (volume > 0) {
+      prevVolumeRef.current = volume;
       setVolumeLevel(0);
     } else {
-      setVolumeLevel(0.5);
+      setVolumeLevel(prevVolumeRef.current || 1);
     }
   };
 
