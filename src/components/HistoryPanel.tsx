@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Play, Plus, Trash2, ArrowUp, Flame, Clock, ListPlus } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import type { Song } from '../types/music';
+import { MUSIC_SOURCES } from '../settings';
 
 interface RecentItem {
   song: Song;
@@ -16,9 +17,7 @@ interface TopItem {
 
 const sourceLabel = (song: Song) => {
   if (song.isLocal) return '本地';
-  if (song.source === 'netease') return '网易云';
-  if (song.source === 'tencent') return 'QQ';
-  return song.source;
+  return MUSIC_SOURCES.find(item => item.id === song.source)?.name || song.source;
 };
 
 export const HistoryPanel: React.FC = () => {

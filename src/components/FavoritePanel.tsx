@@ -3,6 +3,7 @@ import { Heart, Play, Plus, Music, ArrowUp, Download, Upload, RefreshCw, Cloud }
 import { usePlayer } from '../context/PlayerContext';
 import { CoverImage } from './CoverImage';
 import { getDeviceId } from '../services/syncService';
+import { MUSIC_SOURCES } from '../settings';
 
 export const FavoritePanel: React.FC = () => {
   const {
@@ -230,7 +231,7 @@ export const FavoritePanel: React.FC = () => {
                       <div className="song-title-row">
                         <span className="song-name">{song.name}</span>
                         <span className="tag-source">
-                          {song.isLocal ? '本地' : song.source === 'netease' ? '网易云' : song.source === 'tencent' ? 'QQ' : song.source}
+                          {song.isLocal ? '本地' : MUSIC_SOURCES.find(item => item.id === song.source)?.name || song.source}
                         </span>
                       </div>
                       <span className="song-artist">{song.artist}</span>

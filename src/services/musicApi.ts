@@ -371,7 +371,7 @@ export const MusicApiService = {
             if (Array.isArray(songList) && songList.length > 0) {
               return songList.map((item: any) => {
                 const songId = String(item.SQFileHash || item.HQFileHash || item.FileHash || '');
-                const rawImg = item.Image ? item.Image.replace('{size}', '400') : (item.trans_param?.union_cover || '');
+                const rawImg = (item.Image || item.trans_param?.union_cover || '').replace(/\{size\}/g, '400');
                 const cover = resolveImageUrl(rawImg) || null;
                 return {
                   id: songId,
@@ -768,18 +768,45 @@ export const MusicApiService = {
 
       if (source === 'migu') {
         try {
-          const resUrl = `https://c.musicapp.migu.cn/MIGUM2.0/v1.0/content/resourceinfo.do?copyrightId=${lyricId}&resourceType=2`;
-          const resp = await universalFetch(resUrl);
-          if (resp.ok) {
-            const data = await resp.json();
-            const lrcUrl = data?.resource?.[0]?.lrcUrl;
-            if (lrcUrl) {
-              const lrcResp = await universalFetch(lrcUrl);
-              if (lrcResp.ok) {
-                const text = await lrcResp.text();
-                if (text) return { original: text, translated: '', romanized: '' };
+          const fetchMiguLrc = async (cid: string): Promise<string> => {
+            if (!cid) return '';
+            const resUrl = `https://c.musicapp.migu.cn/MIGUM2.0/v1.0/content/resourceinfo.do?copyrightId=${cid}&resourceType=2`;
+            const resp = await universalFetch(resUrl, {
+              headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              const lrcUrl = data?.resource?.[0]?.lrcUrl;
+              if (lrcUrl) {
+                const lrcResp = await universalFetch(lrcUrl);
+                if (lrcResp.ok) {
+                  const text = await lrcResp.text();
+                  if (text && text.trim().length > 0) return text;
+                }
               }
             }
+            return '';
+          };
+
+          let lrcText = await fetchMiguLrc(lyricId);
+          // 若直接使用 lyricId 未取到且有歌名，从咪咕官方检索反查真实 copyrightId
+          if (!lrcText && extraInfo?.name) {
+            const query = `${extraInfo.name} ${extraInfo.singer || ''}`.trim();
+            const sUrl = `https://pd.musicapp.migu.cn/MIGUM2.0/v1.0/content/search_all.do?text=${encodeURIComponent(query)}&pageNo=1&pageSize=1&searchSwitch={song:1}`;
+            const sResp = await universalFetch(sUrl, {
+              headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+            });
+            if (sResp.ok) {
+              const sData = await sResp.json();
+              const foundCid = sData?.songResultData?.result?.[0]?.copyrightId;
+              if (foundCid) {
+                lrcText = await fetchMiguLrc(foundCid);
+              }
+            }
+          }
+
+          if (lrcText) {
+            return { original: lrcText, translated: '', romanized: '' };
           }
         } catch (e) {
           console.warn('Official migu getSongLyric failed', e);
@@ -790,13 +817,9 @@ export const MusicApiService = {
       if (extraInfo?.name) {
         try {
           const query = `${extraInfo.name} ${extraInfo.singer || ''}`.trim();
-          const fallbackRes = await universalFetch(`http://music.163.com/api/cloudsearch/pc`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-              'Referer': 'https://music.163.com'
-            },
-            body: `s=${encodeURIComponent(query)}&type=1&limit=1&offset=0`
+          const fallbackRes = await universalFetch(`http://music.163.com/api/search/get/web?s=${encodeURIComponent(query)}&type=1&offset=0&total=true&limit=1`, {
+            method: 'GET',
+            headers: { 'Referer': 'http://music.163.com' }
           });
           if (fallbackRes.ok) {
             const fData = await fallbackRes.json();
@@ -884,21 +907,53 @@ export const MusicApiService = {
         }
       }
 
+      if (source === 'kugou') {
+        try {
+          const query = extraInfo?.name ? `${extraInfo.name} ${extraInfo.singer || ''}`.trim() : picId;
+          const kgUrl = `https://songsearch.kugou.com/song_search_v2?keyword=${encodeURIComponent(query)}&page=1&pagesize=1&platform=WebFilter`;
+          const res = await universalFetch(kgUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const first = data?.data?.lists?.[0];
+            const raw = (first?.Image || first?.trans_param?.union_cover || '').replace(/\{size\}/g, '400');
+            if (raw) return resolveImageUrl(raw);
+          }
+        } catch (e) {
+          console.warn('Official kugou getSongPic failed', e);
+        }
+      }
+
+      if (source === 'migu') {
+        try {
+          const query = extraInfo?.name ? `${extraInfo.name} ${extraInfo.singer || ''}`.trim() : picId;
+          const mgUrl = `https://pd.musicapp.migu.cn/MIGUM2.0/v1.0/content/search_all.do?text=${encodeURIComponent(query)}&pageNo=1&pageSize=1&searchSwitch={song:1}`;
+          const res = await universalFetch(mgUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const first = data?.songResultData?.result?.[0];
+            const img = first?.imgItems?.[0]?.img;
+            if (img) return resolveImageUrl(img);
+          }
+        } catch (e) {
+          console.warn('Official migu getSongPic failed', e);
+        }
+      }
+
       // 跨源智能兜底：若前序接口未取到封面，从网易云开放接口匹配同名超清封面
       if (extraInfo?.name) {
         try {
           const query = `${extraInfo.name} ${extraInfo.singer || ''}`.trim();
-          const fallbackRes = await universalFetch(`http://music.163.com/api/cloudsearch/pc`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-              'Referer': 'https://music.163.com'
-            },
-            body: `s=${encodeURIComponent(query)}&type=1&limit=1&offset=0`
+          const fallbackRes = await universalFetch(`http://music.163.com/api/search/get/web?s=${encodeURIComponent(query)}&type=1&offset=0&total=true&limit=1`, {
+            method: 'GET',
+            headers: { 'Referer': 'http://music.163.com' }
           });
           if (fallbackRes.ok) {
             const fData = await fallbackRes.json();
-            const matchedCover = fData?.result?.songs?.[0]?.al?.picUrl;
+            const matchedCover = fData?.result?.songs?.[0]?.album?.picUrl || fData?.result?.songs?.[0]?.artists?.[0]?.img1v1Url;
             if (matchedCover) {
               return resolveImageUrl(matchedCover);
             }
