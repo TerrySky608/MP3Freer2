@@ -554,16 +554,24 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       } else {
         // 在线歌曲始终动态解析 URL，不信任持久化/传入的 song.url（CDN 易过期）
         playUrl = await resolveOnlinePlayUrl(song, { allowExpiredFallback: true });
-        if (!lyricText && song.lyric_id) {
-          const lrcData = await MusicApiService.getSongLyric(song.lyric_id, song.source);
+        if (!lyricText && (song.lyric_id || song.name)) {
+          const lrcData = await MusicApiService.getSongLyric(song.lyric_id || '', song.source, {
+            name: song.name,
+            singer: song.artist,
+          });
           lyricText = lrcData.original;
           rawLyricDataRef.current = { original: lrcData.original, translated: lrcData.translated, romanized: lrcData.romanized };
         }
-        if (!picUrl && song.pic_id) {
-          picUrl = resourceCache.getPic(song.source, song.pic_id);
+        if (!picUrl) {
+          if (song.pic_id) {
+            picUrl = resourceCache.getPic(song.source, song.pic_id);
+          }
           if (!picUrl) {
-            picUrl = await MusicApiService.getSongPic(song.pic_id, song.source);
-            if (picUrl) resourceCache.setPic(song.source, song.pic_id, picUrl);
+            picUrl = await MusicApiService.getSongPic(song.pic_id || '', song.source, '300', {
+              name: song.name,
+              singer: song.artist,
+            });
+            if (picUrl && song.pic_id) resourceCache.setPic(song.source, song.pic_id, picUrl);
           }
         }
       }
