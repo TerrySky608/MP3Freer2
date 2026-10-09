@@ -66,11 +66,11 @@ export const API_ENDPOINT_INFOS: ApiEndpointInfo[] = [
 ];
 
 export const MUSIC_SOURCES: Array<{ id: MusicSource; name: string }> = [
-  { id: 'netease', name: '网易云音乐' },
-  { id: 'tencent', name: 'QQ 音乐' },
-  { id: 'kugou', name: '酷狗音乐' },
-  { id: 'kuwo', name: '酷我音乐' },
-  { id: 'migu', name: '咪咕音乐' },
+  { id: 'netease', name: '网易云' },
+  { id: 'kugou', name: '酷狗' },
+  { id: 'kuwo', name: '酷我' },
+  { id: 'migu', name: '咪咕' },
+  { id: 'tencent', name: 'QQ' },
 ];
 
 export function getDownloadPath(): string {

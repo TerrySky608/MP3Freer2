@@ -98,7 +98,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ onToggleFullscreen, isLyri
   }, [currentSong]);
 
   return (
-    <div className={`player-bar ${isLyricOpen ? 'in-lyric-view' : ''}`}>
+    <div className="player-bar">
       {/* 移动端顶部可拖动进度指示条（带滑轨与滑块）- 仅移动端环境渲染 */}
       {isMobileShell() && (
         <div className="mobile-player-progress-bar">

@@ -369,16 +369,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  z-index: 120;
-  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
-}
-
-.player-bar.in-lyric-view {
-  background: rgba(9, 7, 20, 0.82);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.55);
+  z-index: 90;
 }
 
 .player-left {
@@ -755,11 +746,51 @@ body {
   transition: transform 0.5s cubic-bezier(0.85, 0, 0.15, 1);
   transform: translateY(100%);
   overflow: hidden;
-  padding-bottom: var(--player-height);
+  padding-bottom: 0;
   box-sizing: border-box;
 }
 .lyric-view-fullscreen.open {
   transform: translateY(0);
+}
+
+/* 桌面端全屏歌词：隐藏底部播放条，纯净巨幕歌词 */
+html.is-desktop.is-lyric-open .player-bar,
+body.is-desktop.is-lyric-open .player-bar,
+.is-desktop.is-lyric-open .player-bar {
+  display: none !important;
+}
+
+/* 安卓端全屏歌词：底部保留播放控制条，样式与主界面完全一致，歌词内容底部避让 */
+html.is-android.is-lyric-open .player-bar,
+body.is-android.is-lyric-open .player-bar,
+.is-android.is-lyric-open .player-bar {
+  display: flex !important;
+  position: fixed !important;
+  bottom: calc(6px + env(safe-area-inset-bottom, 0px)) !important;
+  left: 8px !important;
+  right: 8px !important;
+  width: calc(100vw - 16px) !important;
+  z-index: 120 !important;
+}
+html.is-android .lyric-view-fullscreen,
+body.is-android .lyric-view-fullscreen,
+.is-android .lyric-view-fullscreen {
+  padding-bottom: calc(var(--player-height) + 12px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+/* 安卓端全屏歌词：隐藏全屏内重复的小播放栏，由底部完整的播放条控制 */
+html.is-android.is-lyric-open .mobile-lyric-bottom-bar,
+body.is-android.is-lyric-open .mobile-lyric-bottom-bar,
+.is-android.is-lyric-open .mobile-lyric-bottom-bar {
+  display: none !important;
+}
+
+/* 安卓端全屏歌词界面中 3 个角标工具按钮：位于播放控制条上方浮动显示 */
+html.is-android .mobile-lyric-corner-tools,
+body.is-android .mobile-lyric-corner-tools,
+.is-android .mobile-lyric-corner-tools {
+  bottom: calc(var(--player-height) + 16px + env(safe-area-inset-bottom, 0px)) !important;
+  z-index: 130 !important;
 }
 
 .lyric-bg-blur {
@@ -2846,15 +2877,15 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     cursor: pointer;
   }
 
-  /* 全屏歌词左下/右下浮动工具组（默认竖向一列固定在左下角） */
+  /* 全屏歌词左下/右下浮动工具组（3个按钮稳稳悬浮在播放控制条上面） */
   .mobile-lyric-corner-tools {
     position: fixed !important;
-    bottom: calc(28px + env(safe-area-inset-bottom, 0px)) !important;
+    bottom: calc(var(--player-height) + 16px + env(safe-area-inset-bottom, 0px)) !important;
     display: flex !important;
     flex-direction: column !important;
     align-items: center;
     gap: 12px;
-    z-index: 100 !important;
+    z-index: 130 !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     pointer-events: auto;
   }

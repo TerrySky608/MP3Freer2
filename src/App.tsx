@@ -48,6 +48,16 @@ function MainLayout() {
     return () => window.removeEventListener('globalSearch', handleGlobalSearch);
   }, []);
 
+  useEffect(() => {
+    if (isLyricOpen) {
+      document.body.classList.add('is-lyric-open');
+      document.documentElement.classList.add('is-lyric-open');
+    } else {
+      document.body.classList.remove('is-lyric-open');
+      document.documentElement.classList.remove('is-lyric-open');
+    }
+  }, [isLyricOpen]);
+
 
   return (
     <div className="app-container">
