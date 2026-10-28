@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen, emit } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import {
   Play,
@@ -52,13 +53,44 @@ interface ContextMenuState {
 
 export function LyricOverlayApp() {
   const [payload, setPayload] = useState<LyricPayload>(EMPTY);
-  const [locked, setLocked] = useState(true);
+  const [locked, setLocked] = useState(false);
+  const [tip, setTip] = useState<string | null>(null);
+  const tipTimerRef = useRef<any>(null);
   const [hovered, setHovered] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0 });
   const [settings, setSettings] = useState<DesktopLyricSettings>(() => loadDesktopLyricSettings());
   const [lineAnimKey, setLineAnimKey] = useState(0);
   const dragTriggeredRef = useRef(false);
   const lastCurrentRef = useRef('');
+
+  const showToast = useCallback((text: string) => {
+    if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
+    setTip(text);
+    tipTimerRef.current = setTimeout(() => setTip(null), 2500);
+  }, []);
+
+  const toggleLock = useCallback(async (targetState?: boolean) => {
+    const next = targetState !== undefined ? targetState : !locked;
+    setLocked(next);
+    showToast(next ? '🔒 歌词已锁定穿透 · 托盘图标或 Ctrl+Alt+L 解锁' : '🔓 歌词已解锁 · 可自由拖动定位');
+    try {
+      await invoke('set_lyric_overlay_lock', { locked: next });
+    } catch (err) {
+      console.warn('切换歌词穿透锁定状态失败:', err);
+    }
+  }, [locked, showToast]);
+
+  useEffect(() => {
+    const unlistenLock = listen<boolean>('overlay-lock-state', (event) => {
+      const isLocked = !!event.payload;
+      setLocked(isLocked);
+      showToast(isLocked ? '🔒 歌词已锁定穿透 · 托盘图标或 Ctrl+Alt+L 解锁' : '🔓 歌词已解锁 · 可自由拖动定位');
+    });
+    return () => {
+      unlistenLock.then(fn => fn());
+    };
+  }, [showToast]);
+
 
   const accentMeta = useMemo(
     () => ACCENT_OPTIONS.find(a => a.id === settings.accent) || ACCENT_OPTIONS[0],
@@ -140,7 +172,7 @@ export function LyricOverlayApp() {
       dragTriggeredRef.current = false;
       return;
     }
-    setLocked(l => !l);
+    void toggleLock();
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -178,14 +210,14 @@ export function LyricOverlayApp() {
       onMouseDown={handleMouseDown}
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
-      title={locked ? '双击解锁后可拖动 · 右键菜单' : '双击锁定 · 拖动移动 · 右键菜单'}
+      title={locked ? '已锁定鼠标穿透 · 托盘或 Ctrl+Alt+L 解锁' : '双击锁定穿透 · 拖动移动 · 右键菜单'}
     >
       <div className={`overlay-controls ${hovered ? 'show' : ''}`}>
         <span className="overlay-song-label">
           {payload.songName}
           {payload.artist && <span className="overlay-artist-label"> — {payload.artist}</span>}
         </span>
-        <span className="overlay-lock-label" aria-hidden>
+        <span className="overlay-lock-label" onClick={(e) => { e.stopPropagation(); void toggleLock(); }} title={locked ? "点击解锁" : "点击锁定穿透"}>
           {locked ? <Lock size={10} /> : <Unlock size={10} />}
         </span>
       </div>
@@ -206,6 +238,12 @@ export function LyricOverlayApp() {
           {payload.next || '\u00A0'}
         </div>
       </div>
+
+      {tip && (
+        <div className="overlay-toast-tip">
+          {tip}
+        </div>
+      )}
 
       {menu.visible && (
         <div
@@ -232,9 +270,9 @@ export function LyricOverlayApp() {
 
           <button
             className="ctx-icon-btn"
-            title={locked ? '解锁（可拖动）' : '锁定'}
+            title={locked ? '解锁（恢复鼠标控制）' : '锁定（开启鼠标穿透）'}
             onClick={() => {
-              setLocked(l => !l);
+              void toggleLock();
               setMenu({ visible: false, x: 0, y: 0 });
             }}
           >

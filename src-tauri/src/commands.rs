@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::AppHandle;
 #[cfg(desktop)]
@@ -166,5 +166,50 @@ pub fn toggle_lyric_overlay(app: AppHandle) -> Result<bool, String> {
             let _ = app.emit("overlay-visibility", true);
             Ok(true)
         }
+    }
+}
+
+#[cfg(desktop)]
+static OVERLAY_LOCKED: AtomicBool = AtomicBool::new(false);
+
+/// 设置桌面悬浮歌词窗口的鼠标穿透（锁定）状态
+#[tauri::command]
+pub fn set_lyric_overlay_lock(app: AppHandle, locked: bool) -> Result<bool, String> {
+    #[cfg(mobile)]
+    {
+        let _ = (app, locked);
+        return Ok(false);
+    }
+
+    #[cfg(desktop)]
+    {
+        let overlay = app
+            .get_webview_window("lyric-overlay")
+            .ok_or_else(|| "桌面歌词窗口未找到".to_string())?;
+
+        overlay
+            .set_ignore_cursor_events(locked)
+            .map_err(|e| format!("设置鼠标穿透失败: {}", e))?;
+
+        OVERLAY_LOCKED.store(locked, Ordering::SeqCst);
+        let _ = app.emit("overlay-lock-state", locked);
+        Ok(locked)
+    }
+}
+
+/// 切换桌面悬浮歌词窗口的锁定/解锁状态（穿透切换）
+#[tauri::command]
+pub fn toggle_lyric_overlay_lock(app: AppHandle) -> Result<bool, String> {
+    #[cfg(mobile)]
+    {
+        let _ = app;
+        return Ok(false);
+    }
+
+    #[cfg(desktop)]
+    {
+        let current = OVERLAY_LOCKED.load(Ordering::SeqCst);
+        let next = !current;
+        set_lyric_overlay_lock(app, next)
     }
 }

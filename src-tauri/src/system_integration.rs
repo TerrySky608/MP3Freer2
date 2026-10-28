@@ -82,6 +82,17 @@ fn register_global_shortcuts(app: &AppHandle) -> Result<(), Box<dyn std::error::
         })?;
     }
 
+    // 快捷键：Ctrl + Alt + L 切换桌面歌词穿透锁定
+    let lock_shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyL);
+    let app_handle_lock = app.clone();
+    manager.on_shortcut(lock_shortcut, move |_app, _shortcut, event| {
+        if event.state() == ShortcutState::Pressed {
+            if let Err(e) = commands::toggle_lyric_overlay_lock(app_handle_lock.clone()) {
+                eprintln!("[快捷键] 切换桌面歌词穿透锁定失败: {}", e);
+            }
+        }
+    })?;
+
     Ok(())
 }
 
@@ -89,7 +100,8 @@ fn register_global_shortcuts(app: &AppHandle) -> Result<(), Box<dyn std::error::
 fn build_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let menu = Menu::with_items(app, &[
         &MenuItem::with_id(app, "show-window", "显示/隐藏主窗口", true, None::<&str>)?,
-        &MenuItem::with_id(app, "toggle-overlay", "桌面歌词", true, None::<&str>)?,
+        &MenuItem::with_id(app, "toggle-overlay", "桌面歌词 (显示/隐藏)", true, None::<&str>)?,
+        &MenuItem::with_id(app, "toggle-overlay-lock", "锁定/解锁桌面歌词 (穿透)", true, None::<&str>)?,
         &PredefinedMenuItem::separator(app)?,
         &MenuItem::with_id(app, "play-pause", "播放/暂停", true, None::<&str>)?,
         &MenuItem::with_id(app, "prev", "上一首", true, None::<&str>)?,
@@ -112,6 +124,11 @@ fn build_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .on_menu_event(|app, event: MenuEvent| {
             let id = event.id().as_ref();
             match id {
+                "toggle-overlay-lock" => {
+                    if let Err(e) = commands::toggle_lyric_overlay_lock(app.clone()) {
+                        eprintln!("[托盘] 切换桌面歌词锁定失败: {}", e);
+                    }
+                }
                 "show-window" => toggle_main_window(app),
                 "toggle-overlay" => {
                     // 调用命令函数直接处理（不经过前端）

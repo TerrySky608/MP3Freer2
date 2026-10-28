@@ -239,3 +239,36 @@
   border-radius: 50%;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
 }
+
+/* 锁定/解锁轻量气泡提示 */
+.overlay-toast-tip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(15, 12, 28, 0.9);
+  border: 1px solid rgba(192, 132, 252, 0.5);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: #f1f5f9;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  z-index: 999;
+  pointer-events: none;
+  animation: toastFadeInOut 2.5s ease forwards;
+  white-space: nowrap;
+}
+
+@keyframes toastFadeInOut {
+  0% { opacity: 0; transform: translate(-50%, -40%) scale(0.95); }
+  12% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -60%) scale(0.95); }
+}
+
+.overlay-lock-label {
+  cursor: pointer;
+  pointer-events: auto;
+}

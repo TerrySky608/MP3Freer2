@@ -23,6 +23,8 @@ pub fn run() {
                 commands::read_audio_metadata,
                 commands::download_file,
                 commands::toggle_lyric_overlay,
+                commands::set_lyric_overlay_lock,
+                commands::toggle_lyric_overlay_lock,
             ])
             .setup(|app| {
                 if let Err(e) = system_integration::init(app.handle()) {
@@ -55,6 +57,8 @@ pub fn run() {
                 commands::read_audio_metadata,
                 commands::download_file,
                 commands::toggle_lyric_overlay,
+                commands::set_lyric_overlay_lock,
+                commands::toggle_lyric_overlay_lock,
             ])
             .setup(|_app| Ok(()))
             .run(tauri::generate_context!())
