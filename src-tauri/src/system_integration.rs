@@ -57,7 +57,7 @@ fn toggle_main_window(app: &AppHandle) {
 }
 
 /// 注册全局媒体快捷键
-fn register_global_shortcuts(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+fn register_global_shortcuts(app: &AppHandle) {
     let manager = app.global_shortcut();
 
     // 媒体键 → Action 映射表
@@ -75,25 +75,27 @@ fn register_global_shortcuts(app: &AppHandle) -> Result<(), Box<dyn std::error::
         let shortcut = Shortcut::new(Some(Modifiers::empty()), *code);
         let action_val = *action;
         let app_handle = app.clone();
-        manager.on_shortcut(shortcut, move |_app, _shortcut, event| {
+        if let Err(e) = manager.on_shortcut(shortcut, move |_app, _shortcut, event| {
             if event.state() == ShortcutState::Pressed {
                 emit_action(&app_handle, action_val);
             }
-        })?;
+        }) {
+            eprintln!("[系统集成] 媒体快捷键注册跳过(已被占用): {:?}", e);
+        }
     }
 
     // 快捷键：Ctrl + Alt + L 切换桌面歌词穿透锁定
     let lock_shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyL);
     let app_handle_lock = app.clone();
-    manager.on_shortcut(lock_shortcut, move |_app, _shortcut, event| {
+    if let Err(e) = manager.on_shortcut(lock_shortcut, move |_app, _shortcut, event| {
         if event.state() == ShortcutState::Pressed {
             if let Err(e) = commands::toggle_lyric_overlay_lock(app_handle_lock.clone()) {
                 eprintln!("[快捷键] 切换桌面歌词穿透锁定失败: {}", e);
             }
         }
-    })?;
-
-    Ok(())
+    }) {
+        eprintln!("[系统集成] Ctrl+Alt+L 快捷键注册跳过(已被其他软件占用): {:?}", e);
+    }
 }
 
 /// 建托盘图标 + 右键菜单
@@ -161,7 +163,9 @@ fn build_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
 /// 在 lib.rs 的 setup() 里调用，初始化全局快捷键和托盘
 pub fn init(app: &AppHandle) -> Result<(), String> {
-    register_global_shortcuts(app).map_err(|e| format!("注册全局快捷键失败: {}", e))?;
+    // 1. 优先创建托盘图标，保证托盘必出，绝不受快捷键冲突的影响
     build_tray(app).map_err(|e| format!("创建托盘图标失败: {}", e))?;
+    // 2. 容错注册全局快捷键（即使个别键被占用，也不会中断）
+    register_global_shortcuts(app);
     Ok(())
 }

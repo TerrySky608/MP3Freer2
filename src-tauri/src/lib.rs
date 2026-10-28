@@ -11,7 +11,29 @@ mod system_integration;
 pub fn run() {
     #[cfg(desktop)]
     {
+        use std::io::{Read, Write};
+        use std::net::{TcpListener, TcpStream};
+        use std::time::Duration;
+        use tauri::Manager;
         use tauri_plugin_global_shortcut::Builder as GsBuilder;
+
+        // 本地环回单实例互斥锁（MP3Tao 专属端口）
+        const SINGLE_INSTANCE_PORT: &str = "127.0.0.1:45321";
+
+        let single_instance_listener = match TcpListener::bind(SINGLE_INSTANCE_PORT) {
+            Ok(listener) => listener,
+            Err(_) => {
+                // 端口已被绑定，说明已有 MP3Tao 实例在运行
+                // 向已有实例发送唤醒通知，并立刻退出当前多开进程
+                if let Ok(mut stream) = TcpStream::connect_timeout(
+                    &SINGLE_INSTANCE_PORT.parse().unwrap(),
+                    Duration::from_millis(500),
+                ) {
+                    let _ = stream.write_all(b"WAKEUP\n");
+                }
+                std::process::exit(0);
+            }
+        };
 
         tauri::Builder::default()
             .plugin(tauri_plugin_http::init())
@@ -26,7 +48,23 @@ pub fn run() {
                 commands::set_lyric_overlay_lock,
                 commands::toggle_lyric_overlay_lock,
             ])
-            .setup(|app| {
+            .setup(move |app| {
+                let handle = app.handle().clone();
+                // 监听后续重复启动发来的唤醒信号
+                std::thread::spawn(move || {
+                    for stream in single_instance_listener.incoming() {
+                        if let Ok(mut s) = stream {
+                            let mut buf = [0u8; 16];
+                            let _ = s.read(&mut buf);
+                            if let Some(window) = handle.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                });
+
                 if let Err(e) = system_integration::init(app.handle()) {
                     eprintln!("[系统集成] 初始化失败: {}", e);
                 }
