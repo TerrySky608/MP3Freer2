@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 const isTauri = typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ !== undefined;
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -143,12 +143,22 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return saved ? parseInt(saved, 10) : -1;
   });
   const [localDirectory, setLocalDirectory] = useState<string | null>(() => storage.getString(StorageKeys.LOCAL_DIRECTORY) || null);
-  const [currentSong, setCurrentSong] = useState<Song | null>(null);
+  const [currentSong, setCurrentSong] = useState<Song | null>(() => {
+    const saved = storage.getString(StorageKeys.CURRENT_PLAYINDEX);
+    const idx = saved ? parseInt(saved, 10) : -1;
+    const rawList = storage.getJSON<Song[]>(StorageKeys.CURRENT_PLAYLIST, []);
+    const normalizedList = normalizePersistedSongs(rawList);
+    if (idx >= 0 && idx < normalizedList.length) {
+      return normalizedList[idx];
+    }
+    return null;
+  });
   // currentTime / duration / isPlaying 已抽离到独立的 playbackProgress store，
   // 避免每秒触发所有消费 usePlayer() 的组件重渲染。
   // isPlayingRef 镜像播放状态，供异步回调（canplay 等）读取最新值，
   // 避免闭包捕获陈旧的 isPlaying（loadSongDetails 的 race 修复）。
   const isPlayingRef = useRef<boolean>(false);
+  const lastSavedProgressRef = useRef<number>(0);
   const [playMode, setPlayMode] = useState<PlayMode>('list-loop');
   const [volume, setVolume] = useState<number>(() => {
     const saved = storage.getString(StorageKeys.VOLUME);
@@ -245,6 +255,17 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
+
+    // 启动时恢复上次播放进度秒数与总时长，控制条即刻定位到上次中断处
+    const savedPos = parseFloat(storage.getString(StorageKeys.LAST_PLAY_POSITION) || '0');
+    const savedDur = parseFloat(storage.getString(StorageKeys.LAST_PLAY_DURATION) || '0');
+    if (!Number.isNaN(savedPos) && savedPos > 0) {
+      playbackActions.setCurrentTime(savedPos);
+      lastSavedProgressRef.current = savedPos;
+    }
+    if (!Number.isNaN(savedDur) && savedDur > 0) {
+      playbackActions.setDuration(savedDur);
+    }
     
     audio.volume = volume;
 
@@ -256,10 +277,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // 若当前没有可用音源或 audio 已被重置，切歌缓冲中跳过同步，避免脏数据闪烁
       if (!audio.src || Number.isNaN(audio.currentTime)) return;
       playbackActions.setCurrentTime(audio.currentTime);
+
+      // 每隔 1 秒节流持久化当前播放进度，供下次启动精准恢复
+      const cur = audio.currentTime;
+      if (Math.abs(cur - lastSavedProgressRef.current) >= 1) {
+        lastSavedProgressRef.current = cur;
+        storage.setString(StorageKeys.LAST_PLAY_POSITION, cur.toFixed(1));
+        if (audio.duration && !Number.isNaN(audio.duration) && audio.duration > 0) {
+          storage.setString(StorageKeys.LAST_PLAY_DURATION, audio.duration.toFixed(1));
+        }
+      }
+
       // Android WebView 下隐藏/不可见的 <audio> 在自然播放结束时 ended 事件可能丢失，
       // 用 timeupdate 兜底：接近末尾且本次未处理过结束时主动连播。
-      // endedGuardRef 由 handleSongEnded 置位、loadSongDetails 切歌时复位，
-      // 保证 ended 与兜底谁先到都只触发一次。
       if (!endedGuardRef.current
         && audio.duration && !Number.isNaN(audio.duration)
         && audio.duration > 1
@@ -328,30 +358,60 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const savedFavorites = storage.getString(StorageKeys.FAVORITE_SONGS);
     const parsedFavs = savedFavorites ? storage.getJSON<Song[]>(StorageKeys.FAVORITE_SONGS, []) : [];
     if (parsedFavs.length > 0) {
-      // 收藏可能含已下载本地曲（保留 localPath/url）与在线条目（规范化 id、剥离流 url）
       setFavoriteSongs(parsedFavs.map(s => (s.isLocal ? s : normalizePersistedSong(s))));
-    } else {
-      // 本地收藏为空（如重装或新安装打开），根据暗号自动静默从云端拉取历史备份
-      void restoreFavoritesFromCloud().then(cloudFav => {
-        if (cloudFav && cloudFav.songs && cloudFav.songs.length > 0) {
-          const restoredSongs = cloudFav.songs.map(normalizePersistedSong);
-          setFavoriteSongs(restoredSongs);
-          storage.setJSON(
-            StorageKeys.FAVORITE_SONGS,
-            restoredSongs.map(s => (s.isLocal ? s : stripEphemeralStreamUrl(s))),
-          );
-          if (cloudFav.playlists && cloudFav.playlists.length > 0) {
-            setFavoritePlaylists(cloudFav.playlists);
-            storage.setJSON(StorageKeys.FAVORITE_PLAYLISTS, cloudFav.playlists);
-          }
-          if (cloudFav.artists && cloudFav.artists.length > 0) {
-            setFavoriteArtists(cloudFav.artists);
-            storage.setJSON(StorageKeys.FAVORITE_ARTISTS, cloudFav.artists);
-          }
-          toast.success(`已根据同步暗号【${getSyncCode()}】自动拉取 ${cloudFav.songs.length} 首云端收藏歌曲`);
-        }
-      });
     }
+
+    // 启动 1.5 秒后（待网络与首屏就绪），无论桌面端还是安卓版，自动执行一次跨设备智能云同步
+    const startupAutoSyncTimer = setTimeout(() => {
+      void (async () => {
+        try {
+          const cloudData = await restoreFavoritesFromCloud();
+          const localFavSongs = storage.getJSON<Song[]>(StorageKeys.FAVORITE_SONGS, []);
+          const localPlaylists = storage.getJSON<FavoritePlaylist[]>(StorageKeys.FAVORITE_PLAYLISTS, []);
+          const localArtists = storage.getJSON<FavoriteArtist[]>(StorageKeys.FAVORITE_ARTISTS, []);
+
+          const hasCloudData = !!(cloudData && ((cloudData.songs && cloudData.songs.length > 0) || (cloudData.playlists && cloudData.playlists.length > 0) || (cloudData.artists && cloudData.artists.length > 0)));
+          const hasLocalData = localFavSongs.length > 0 || localPlaylists.length > 0 || localArtists.length > 0;
+
+          if (hasCloudData) {
+            const merged = mergeFavoritesData(
+              { songs: localFavSongs, playlists: localPlaylists, artists: localArtists },
+              cloudData!
+            );
+            const isDiff = merged.songs.length !== localFavSongs.length ||
+              merged.playlists.length !== localPlaylists.length ||
+              merged.artists.length !== localArtists.length;
+
+            setFavoriteSongs(merged.songs);
+            storage.setJSON(
+              StorageKeys.FAVORITE_SONGS,
+              merged.songs.map(s => (s.isLocal ? s : stripEphemeralStreamUrl(s))),
+            );
+            setFavoritePlaylists(merged.playlists);
+            storage.setJSON(StorageKeys.FAVORITE_PLAYLISTS, merged.playlists);
+            setFavoriteArtists(merged.artists);
+            storage.setJSON(StorageKeys.FAVORITE_ARTISTS, merged.artists);
+
+            // 若本地有增量，异步回写云端保持全量最新
+            if (merged.songs.length > 0 || merged.playlists.length > 0 || merged.artists.length > 0) {
+              await backupFavoritesToCloud(merged);
+            }
+            if (isDiff) {
+              toast.success(`已自动同步云端收藏（现共 ${merged.songs.length} 首歌曲）`);
+            }
+          } else if (hasLocalData) {
+            // 云端为空但本地有有效收藏，自动完成首度备份
+            await backupFavoritesToCloud({
+              songs: localFavSongs,
+              playlists: localPlaylists,
+              artists: localArtists,
+            });
+          }
+        } catch (syncErr) {
+          console.warn('[AutoSync] 启动自动同步提示(网络波动或离线):', syncErr);
+        }
+      })();
+    }, 1500);
 
     return () => {
       audio.removeEventListener('timeupdate', onTimeUpdate);
@@ -365,7 +425,41 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       audio.pause();
       if (autoSkipTimerRef.current) clearTimeout(autoSkipTimerRef.current);
+      clearTimeout(startupAutoSyncTimer);
     };
+  }, []);
+
+
+  // 启动时若恢复了当前歌曲，静默载入歌词以便全屏歌词与悬浮窗即刻呈现对应句
+  useEffect(() => {
+    if (!currentSong || lyrics.length > 0) return;
+    void (async () => {
+      try {
+        let lyricText = currentSong.lyric || '';
+        if (!lyricText && !currentSong.isLocal) {
+          const lrcData = await MusicApiService.getSongLyric(currentSong.lyric_id || '', currentSong.source, {
+            name: currentSong.name,
+            singer: currentSong.artist,
+          });
+          if (lrcData) {
+            lyricText = lrcData.original || '';
+            rawLyricDataRef.current = {
+              original: lrcData.original || '',
+              translated: lrcData.translated || '',
+              romanized: lrcData.romanized || '',
+            };
+          }
+        }
+        if (lyricText) {
+          const rawForLyrics = rawLyricDataRef.current.original
+            ? rawLyricDataRef.current
+            : { original: lyricText, translated: '', romanized: '' };
+          setLyrics(parseLrcWithExtras(rawForLyrics.original, rawForLyrics.translated, rawForLyrics.romanized, 0));
+        }
+      } catch (err) {
+        console.warn('Silent initial lyric load warning:', err);
+      }
+    })();
   }, []);
 
   // 订阅播放进度 store：把高频更新的 currentTime / isPlaying 拿到本地，
@@ -482,7 +576,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * 核心切歌方法：直接触发 loadSongDetails，无需经过 React 渲染帧被动调度，
    * 彻底解决手机锁屏/后台休眠期间 React useEffect 调度被挂起导致的连播中断。
    */
-  const playSongAtIndex = (targetIndex: number, options: { forceReplay?: boolean } = {}) => {
+  const playSongAtIndex = (targetIndex: number, options: { forceReplay?: boolean; startPosition?: number } = {}) => {
     const pl = playlistRef.current;
     if (pl.length === 0 || targetIndex < 0 || targetIndex >= pl.length) return;
 
@@ -503,7 +597,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       audioRef.current.currentTime = 0;
       audioRef.current.play().catch(console.error);
     } else {
-      void loadSongDetails(targetSong);
+      void loadSongDetails(targetSong, options.startPosition);
     }
   };
 
@@ -555,7 +649,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return playUrl;
   };
 
-  const loadSongDetails = async (song: Song) => {
+  const loadSongDetails = async (song: Song, startPosition?: number) => {
     const audio = audioRef.current;
     if (!audio) return;
 
@@ -692,6 +786,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           return;
         }
 
+        if (startPosition && startPosition > 0) {
+          try {
+            audio.currentTime = startPosition;
+          } catch (e) {
+            console.warn('Set initial startPosition failed:', e);
+          }
+        }
         isPlayingRef.current = true;
         playbackActions.setIsPlaying(true);
         audio.play()

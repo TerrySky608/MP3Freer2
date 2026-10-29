@@ -56,6 +56,8 @@ export const StorageKeys = {
   PLAY_HISTORY: 'mp3freer_play_history',
   CURRENT_PLAYLIST: 'mp3freer_current_playlist',
   CURRENT_PLAYINDEX: 'mp3freer_current_playindex',
+  LAST_PLAY_POSITION: 'mp3freer_last_play_position',
+  LAST_PLAY_DURATION: 'mp3freer_last_play_duration',
   FAVORITE_PLAYLISTS: 'mp3freer_favorite_playlists',
   FAVORITE_ARTISTS: 'mp3freer_favorite_artists',
   SHOW_TRANSLATION: 'mp3freer_show_translation',
