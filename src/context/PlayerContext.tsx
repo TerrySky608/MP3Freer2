@@ -430,11 +430,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
 
-  // 启动时若恢复了当前歌曲，静默载入歌词以便全屏歌词与悬浮窗即刻呈现对应句
+  // 启动时若恢复了当前歌曲，静默载入歌词并预就绪音频直链与断点，以便全屏歌词与播放即刻秒开
   useEffect(() => {
-    if (!currentSong || lyrics.length > 0) return;
+    if (!currentSong) return;
+    const audio = audioRef.current;
+
     void (async () => {
       try {
+        // 1. 静默预载歌词
         let lyricText = currentSong.lyric || '';
         if (!lyricText && !currentSong.isLocal) {
           const lrcData = await MusicApiService.getSongLyric(currentSong.lyric_id || '', currentSong.source, {
@@ -456,8 +459,37 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             : { original: lyricText, translated: '', romanized: '' };
           setLyrics(parseLrcWithExtras(rawForLyrics.original, rawForLyrics.translated, rawForLyrics.romanized, 0));
         }
+
+        // 2. 静默预载音频直链与断点（保持 paused）
+        if (audio && !audio.src && !isPlayingRef.current) {
+          let preUrl = null;
+          if (currentSong.isLocal) {
+            const localPath = currentSong.localPath || currentSong.url || '';
+            if (isTauri && localPath && await exists(localPath)) {
+              preUrl = convertFileSrc(localPath);
+            }
+          } else {
+            preUrl = await resolveOnlinePlayUrl(currentSong, { allowExpiredFallback: true });
+          }
+
+          if (preUrl && audioRef.current && !audioRef.current.src && !isPlayingRef.current) {
+            audioRef.current.src = preUrl;
+            const savedPos = lastSavedProgressRef.current || parseFloat(storage.getString(StorageKeys.LAST_PLAY_POSITION) || '0');
+            if (savedPos > 0) {
+              const onMeta = () => {
+                if (audioRef.current) {
+                  audioRef.current.removeEventListener('loadedmetadata', onMeta);
+                  try {
+                    audioRef.current.currentTime = savedPos;
+                  } catch (_) {}
+                }
+              };
+              audio.addEventListener('loadedmetadata', onMeta);
+            }
+          }
+        }
       } catch (err) {
-        console.warn('Silent initial lyric load warning:', err);
+        console.warn('Silent initial preload warning:', err);
       }
     })();
   }, []);
@@ -593,8 +625,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     rawLyricDataRef.current = { original: '', translated: '', romanized: '' };
     storage.setString(StorageKeys.CURRENT_PLAYINDEX, String(targetIndex));
 
+    // 若不是恢复指定历史断点（即正常切歌），清理旧进度记忆与存储，防止串歌污染
+    if (!options.startPosition) {
+      lastSavedProgressRef.current = 0;
+      storage.setString(StorageKeys.LAST_PLAY_POSITION, '0');
+    }
+
     if (isSameIndex && !options.forceReplay && audioRef.current && audioRef.current.src && !audioRef.current.error) {
-      audioRef.current.currentTime = 0;
+      audioRef.current.currentTime = options.startPosition || 0;
       audioRef.current.play().catch(console.error);
     } else {
       void loadSongDetails(targetSong, options.startPosition);
@@ -663,6 +701,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (onCanPlayRef.current) {
       audio.removeEventListener('canplay', onCanPlayRef.current.canplay);
       audio.removeEventListener('loadeddata', onCanPlayRef.current.canplay);
+      audio.removeEventListener('loadedmetadata', onCanPlayRef.current.canplay);
       audio.removeEventListener('error', onCanPlayRef.current.error);
       onCanPlayRef.current = null;
     }
@@ -699,69 +738,23 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       setIsLoading(!song.isLocal);
       let playUrl: string | null = null;
-      let lyricText = song.lyric || '';
-      let picUrl = song.pic;
 
+      // 1. 优先解析音频直链，确保最快速度喂给 audio 播放，绝不被歌词/封面阻塞
       if (song.isLocal) {
         const localPath = song.localPath || song.url || '';
         if (isTauri && localPath && await exists(localPath)) {
           playUrl = convertFileSrc(localPath);
-          const localData = await loadLocalSongData({ ...song, localPath });
-          lyricText = localData.lyricText;
-          if (!picUrl) picUrl = localData.picUrl;
         } else {
           toast.error(`本地歌曲文件不存在，无法播放：\n${localPath || song.name}`);
           playUrl = null;
         }
       } else {
-        // 在线歌曲始终动态解析 URL，不信任持久化/传入的 song.url（CDN 易过期）
         playUrl = await resolveOnlinePlayUrl(song, { allowExpiredFallback: true });
-        if (!lyricText && (song.lyric_id || song.name)) {
-          const lrcData = await MusicApiService.getSongLyric(song.lyric_id || '', song.source, {
-            name: song.name,
-            singer: song.artist,
-          });
-          lyricText = lrcData.original;
-          rawLyricDataRef.current = { original: lrcData.original, translated: lrcData.translated, romanized: lrcData.romanized };
-        }
-        if (!picUrl) {
-          if (song.pic_id) {
-            picUrl = resourceCache.getPic(song.source, song.pic_id);
-          }
-          if (!picUrl) {
-            picUrl = await MusicApiService.getSongPic(song.pic_id || '', song.source, '300', {
-              name: song.name,
-              singer: song.artist,
-            });
-            if (picUrl && song.pic_id) resourceCache.setPic(song.source, song.pic_id, picUrl);
-          }
-        }
       }
 
       if (currentSession !== playSessionIdRef.current) {
         return; // 用户已切换到其他歌曲，丢弃本次结果（suppress 由新会话接管）
       }
-
-      // 歌词就绪后立刻解析上屏，不依赖 canplay（避免 canplay 未触发时歌词空白/停住）
-      const rawForLyrics = rawLyricDataRef.current.original
-        ? rawLyricDataRef.current
-        : { original: lyricText, translated: '', romanized: '' };
-      setLyrics(parseLrcWithExtras(rawForLyrics.original, rawForLyrics.translated, rawForLyrics.romanized, 0));
-
-      // 内存中可暂存当前会话 playUrl；持久化层会剥离在线 url
-      const updatedSong = {
-        ...song,
-        url: song.isLocal ? (song.localPath || playUrl) : playUrl,
-        lyric: lyricText,
-        pic: resolveImageUrl(picUrl) || picUrl || null,
-      };
-      setCurrentSong(updatedSong);
-      setPlaylist(prev => {
-        const copy = [...prev];
-        const idx = playIndexRef.current;
-        if (idx >= 0 && idx < copy.length) copy[idx] = updatedSong;
-        return copy;
-      });
 
       if (!playUrl) {
         toast.error(`获取歌曲播放链接失败！即将自动跳过...\n\n歌曲：${song.name}\n该歌曲可能为 VIP 专享或接口无响应，请稍后重试。`);
@@ -773,19 +766,67 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return;
       }
 
-      const startPlaybackIfNeeded = () => {
-        if (currentSession !== playSessionIdRef.current) return;
-        if (startedPlayback) return;
-        startedPlayback = true;
+      // 2. 歌词与封面并行非阻塞加载（后台处理，绝不阻塞音频起播）
+      void (async () => {
+        try {
+          let lyricText = song.lyric || '';
+          let picUrl = song.pic;
 
-        // 真正开始播放时记历史（覆盖自动连播路径）
-        recordPlay(song);
+          if (song.isLocal) {
+            const localData = await loadLocalSongData({ ...song, localPath: song.localPath || song.url || '' });
+            if (!lyricText) lyricText = localData.lyricText;
+            if (!picUrl) picUrl = localData.picUrl;
+          } else {
+            const lyricPromise = (!lyricText && (song.lyric_id || song.name))
+              ? MusicApiService.getSongLyric(song.lyric_id || '', song.source, { name: song.name, singer: song.artist }).catch(() => null)
+              : Promise.resolve(null);
 
-        if (!playIntentRef.current) {
-          releasePauseSuppress();
-          return;
+            const picPromise = (!picUrl && song.pic_id)
+              ? (resourceCache.getPic(song.source, song.pic_id)
+                  ? Promise.resolve(resourceCache.getPic(song.source, song.pic_id))
+                  : MusicApiService.getSongPic(song.pic_id, song.source, '300', { name: song.name, singer: song.artist }).catch(() => null))
+              : Promise.resolve(picUrl || null);
+
+            const [lrcData, fetchedPic] = await Promise.all([lyricPromise, picPromise]);
+            if (lrcData) {
+              lyricText = lrcData.original || '';
+              rawLyricDataRef.current = { original: lrcData.original, translated: lrcData.translated, romanized: lrcData.romanized };
+            }
+            if (fetchedPic) {
+              picUrl = fetchedPic;
+              if (song.pic_id) resourceCache.setPic(song.source, song.pic_id, fetchedPic);
+            }
+          }
+
+          if (currentSession !== playSessionIdRef.current) return;
+
+          if (lyricText) {
+            const rawForLyrics = rawLyricDataRef.current.original
+              ? rawLyricDataRef.current
+              : { original: lyricText, translated: '', romanized: '' };
+            setLyrics(parseLrcWithExtras(rawForLyrics.original, rawForLyrics.translated, rawForLyrics.romanized, 0));
+          }
+
+          const updatedSong = {
+            ...song,
+            url: song.isLocal ? (song.localPath || playUrl) : playUrl,
+            lyric: lyricText,
+            pic: resolveImageUrl(picUrl) || picUrl || null,
+          };
+          setCurrentSong(updatedSong);
+          setPlaylist(prev => {
+            const copy = [...prev];
+            const idx = playIndexRef.current;
+            if (idx >= 0 && idx < copy.length) copy[idx] = updatedSong;
+            return copy;
+          });
+        } catch (mediaErr) {
+          console.warn('Async lyric/pic load warning:', mediaErr);
         }
+      })();
 
+      // 3. 音频精准 seek 与播放控制
+      const applyStartPosition = () => {
         if (startPosition && startPosition > 0) {
           try {
             audio.currentTime = startPosition;
@@ -793,6 +834,24 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             console.warn('Set initial startPosition failed:', e);
           }
         }
+      };
+
+      const startPlaybackIfNeeded = () => {
+        if (currentSession !== playSessionIdRef.current) return;
+        if (startedPlayback) return;
+        startedPlayback = true;
+
+        recordPlay(song);
+
+        if (!playIntentRef.current) {
+          releasePauseSuppress();
+          return;
+        }
+
+        if (audio.readyState >= 1) {
+          applyStartPosition();
+        }
+
         isPlayingRef.current = true;
         playbackActions.setIsPlaying(true);
         audio.play()
@@ -800,7 +859,6 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             playIntentRef.current = true;
             isPlayingRef.current = true;
             playbackActions.setIsPlaying(true);
-            // 待当前歌曲稳定播放 4 秒后，自动在后台提前预缓冲下一首音频，避免与当前曲初始抢带宽
             if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current);
             prefetchTimerRef.current = setTimeout(() => {
               void prefetchNextSong(playIndexRef.current);
@@ -809,7 +867,6 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           })
           .catch(err => {
             console.warn('Playback start deferred or pending in background:', err);
-            // 注意：后台或息屏被拦截时不抹掉 playIntentRef，使 canplay / loadeddata / visibilitychange 能重新拉起
           })
           .finally(() => {
             releasePauseSuppress();
@@ -821,9 +878,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (onCanPlayRef.current) {
           audio.removeEventListener('canplay', onCanPlayRef.current.canplay);
           audio.removeEventListener('loadeddata', onCanPlayRef.current.canplay);
+          audio.removeEventListener('loadedmetadata', onCanPlayRef.current.canplay);
           audio.removeEventListener('error', onCanPlayRef.current.error);
           onCanPlayRef.current = null;
         }
+        applyStartPosition();
         startPlaybackIfNeeded();
         if (playIntentRef.current && audio.paused) {
           audio.play().catch(e => console.warn('Retry play on canplay:', e));
@@ -836,7 +895,6 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const onError = () => {
         if (currentSession !== playSessionIdRef.current) return;
         void (async () => {
-          // 在线流播放或解码异常：自动触发多音源智能故障转移（Smart Failover）
           if (!song.isLocal) {
             try {
               const apiId = resolveOnlineApiId(song);
@@ -884,6 +942,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       onCanPlayRef.current = { canplay: onCanPlay, error: onError };
       audio.addEventListener('canplay', onCanPlay);
       audio.addEventListener('loadeddata', onCanPlay);
+      audio.addEventListener('loadedmetadata', onCanPlay);
       audio.addEventListener('error', onError);
 
       // 直接给 audio 元素赋予新地址，保留已有的用户手势与前台播放授权
@@ -1072,7 +1131,18 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const audio = audioRef.current;
     if (!audio || !currentSong) return;
 
-    // 读 ref 而非闭包 isPlaying，保证拿到最新状态
+    // 1. 若当前音频标签尚未真正载入有效播放源（如启动恢复现场或被清空），走完整装载链路起播
+    const hasValidSource = !!audio.src && audio.src !== window.location.href && !audio.error;
+    if (!hasValidSource) {
+      const idx = playIndexRef.current >= 0 ? playIndexRef.current : 0;
+      const targetPos = lastSavedProgressRef.current > 0
+        ? lastSavedProgressRef.current
+        : parseFloat(storage.getString(StorageKeys.LAST_PLAY_POSITION) || '0');
+      playSongAtIndex(idx, { forceReplay: true, startPosition: targetPos > 0 ? targetPos : undefined });
+      return;
+    }
+
+    // 2. 正常播放 / 暂停切换
     if (isPlayingRef.current || playIntentRef.current) {
       playIntentRef.current = false;
       audio.pause();
@@ -1088,6 +1158,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .catch(err => {
           console.error('Toggle play failed:', err);
           playIntentRef.current = false;
+          // 若 play() 因源失效或状态不同步而失败，尝试通过 playSongAtIndex 重新装载起播
+          if (!audio.currentSrc || audio.error) {
+            const idx = playIndexRef.current >= 0 ? playIndexRef.current : 0;
+            playSongAtIndex(idx, { forceReplay: true });
+          }
         });
     }
   };
