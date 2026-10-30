@@ -111,11 +111,16 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
       }
     }) as EventListener;
 
-    // 点击歌曲行里的"专辑名"进入专辑详情，detail = { albumId, source }
+    // 点击歌曲行里的"专辑名"进入专辑详情，detail = { albumId, source, albumName, artistName }
     const handleOpenAlbum = ((e: CustomEvent) => {
       const detail = e.detail || {};
-      if (detail.albumId) {
-        void handleAlbumClick(detail.albumId, detail.source || 'netease');
+      if (detail.albumId || detail.albumName) {
+        void handleAlbumClick(
+          detail.albumId || '',
+          detail.source || 'netease',
+          detail.albumName,
+          detail.artistName
+        );
       }
     }) as EventListener;
 
@@ -302,11 +307,16 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
   };
 
   // 点击专辑名进入专辑详情：复用 selectedPlaylist 详情视图
-  const handleAlbumClick = async (albumId: string, source: string) => {
+  const handleAlbumClick = async (
+    albumId: string,
+    source: string,
+    albumName?: string,
+    artistName?: string
+  ) => {
     setPlaylistLoading(true);
     openDetailScrollTop();
     try {
-      const details = await MusicApiService.getAlbumDetail(albumId, source);
+      const details = await MusicApiService.getAlbumDetail(albumId, source, albumName, artistName);
       if (!details) {
         toast.error('无法获取该专辑详情。\n\n该歌曲可能来自第三方接口，未提供专辑信息；或专辑已下架。');
         return;
@@ -357,12 +367,19 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
             </span>
           </div>
           <div className="song-col-album">
-            {song.albumId ? (
+            {song.album && song.album !== '未知专辑' && song.album !== '-' ? (
               <span
                 className="clickable-artist"
                 onClick={(e) => {
                   e.stopPropagation();
-                  window.dispatchEvent(new CustomEvent('openAlbum', { detail: { albumId: song.albumId, source: song.source } }));
+                  window.dispatchEvent(new CustomEvent('openAlbum', {
+                    detail: {
+                      albumId: song.albumId,
+                      albumName: song.album,
+                      artistName: song.artist,
+                      source: song.source
+                    }
+                  }));
                 }}
                 title={`查看专辑: ${song.album}`}
                 style={{ display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -370,7 +387,7 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
                 {song.album}
               </span>
             ) : (
-              song.album
+              song.album || '-'
             )}
           </div>
           <div className="song-col-duration">{formatSecs(song.duration || 0)}</div>

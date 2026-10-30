@@ -1,4 +1,4 @@
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+﻿import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 const isTauri = typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ !== undefined;
 
@@ -411,12 +411,14 @@ export const MusicApiService = {
                 const songId = String(item.id || item.copyrightId || '');
                 const singer = Array.isArray(item.singers) ? item.singers.map((s: any) => s.name).join(', ') : '未知歌手';
                 const album = item.albums?.[0]?.name || '未知专辑';
+                const rawAlbumId = item.albums?.[0]?.id ? String(item.albums[0].id) : undefined;
                 const cover = item.imgItems?.[0]?.img || null;
                 return {
                   id: songId,
                   name: firstString(item.name, '未知歌曲'),
                   artist: singer,
                   album,
+                  albumId: rawAlbumId,
                   source: 'migu',
                   url_id: songId,
                   pic_id: songId,
@@ -1222,66 +1224,335 @@ export const MusicApiService = {
    * 复用 PlaylistDetail 结构以便 SearchPanel 的详情页直接渲染。
    * 仅网易源有免费官方接口；其它源返回 null。
    */
-  async getAlbumDetail(albumId: string, source: string = 'netease'): Promise<PlaylistDetail | null> {
-    if (source !== 'netease' || !albumId) return null;
-    // 网易云专辑接口实测：未登录时 GET /api/album/{id} 返回 -462、GET /api/v1/album?id= 返回 404。
-    // 真正可用的是 POST /api/v1/album/{id}（客户端用的那个），以及第三方接口的 album 类型。
-    const attempts: Array<{ url: string; init?: any }> = [
-      { url: `http://music.163.com/api/v1/album/${albumId}`, init: { method: 'POST', headers: { 'Referer': 'http://music.163.com' } } },
-      { url: `http://music.163.com/api/album/${albumId}`, init: { method: 'POST', headers: { 'Referer': 'http://music.163.com' } } },
-    ];
-    // 第三方接口回退：部分的 GD/xingzhige 提供 playlist 查询，复用歌单接口拿专辑
-    const fallbackEndpoints = getEnabledApiEndpoints();
-    for (const ep of fallbackEndpoints) {
-      attempts.push({ url: `${ep}/api.php?types=playlist&id=${albumId}` });
-    }
+  async getAlbumDetail(
+    albumId: string,
+    source: string = 'netease',
+    albumNameOpt?: string,
+    artistNameOpt?: string
+  ): Promise<PlaylistDetail | null> {
+    if (!albumId && !albumNameOpt) return null;
 
-    for (const { url, init } of attempts) {
+    // 1. 酷狗音乐 (kugou) 官方接口
+    if (source === 'kugou' && albumId) {
       try {
-        const response = await universalFetch(url, init || { headers: { 'Referer': 'http://music.163.com' } });
-        if (!response.ok) {
-          continue;
+        const infoUrl = `http://mobilecdn.kugou.com/api/v3/album/info?albumid=${encodeURIComponent(albumId)}`;
+        const songUrl = `http://mobilecdn.kugou.com/api/v3/album/song?albumid=${encodeURIComponent(albumId)}&page=1&pagesize=100`;
+        const [infoRes, songRes] = await Promise.all([
+          universalFetch(infoUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null),
+          universalFetch(songUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null),
+        ]);
+        let albumName = albumNameOpt || '未知专辑';
+        let singerName = artistNameOpt || '未知歌手';
+        let coverUrl = '';
+        if (infoRes && infoRes.ok) {
+          const infoData = await infoRes.json().catch(() => null);
+          const d = infoData?.data;
+          if (d) {
+            if (d.albumname) albumName = d.albumname;
+            if (d.singername) singerName = d.singername;
+            if (d.imgurl) coverUrl = resolveImageUrl(d.imgurl.replace('{size}', '400')) || '';
+          }
         }
-        const data = await response.json();
-
-        // 网易官方返回：{ album, songs[] }
-        const album = data?.album;
-        const songs = Array.isArray(data?.songs) ? data.songs : [];
-        if (album && Array.isArray(data?.songs)) {
-          return {
-            id: String(album.id),
-            name: firstString(album.name, '未知专辑'),
-            cover: resolveImageUrl(album.picUrl, album.blurPicUrl) || '',
-            creatorName: firstString(album.artist?.name, '未知歌手'),
-            creatorAvatar: resolveImageUrl(album.artist?.picUrl, album.artist?.img1v1Url),
-            item: songs.map((song: any) => mapOnlineSong(song, 'netease')),
-          };
+        if (songRes && songRes.ok) {
+          const songData = await songRes.json().catch(() => null);
+          const songList = songData?.data?.info;
+          if (Array.isArray(songList) && songList.length > 0) {
+            const items: OnlineSong[] = songList.map((item: any) => {
+              const hash = String(item.hash || item.sqhash || item['320hash'] || '');
+              let songName = item.songname || item.filename || '未知歌曲';
+              let artist = singerName;
+              if (item.filename && item.filename.includes(' - ')) {
+                const parts = item.filename.split(' - ');
+                artist = parts[0]?.trim() || singerName;
+                songName = parts.slice(1).join(' - ').trim() || songName;
+              }
+              const rawImg = item.trans_param?.union_cover
+                ? String(item.trans_param.union_cover).replace('{size}', '400')
+                : coverUrl;
+              return {
+                id: hash,
+                name: songName,
+                artist,
+                album: albumName,
+                albumId,
+                source: 'kugou',
+                url_id: hash,
+                pic_id: hash,
+                lyric_id: `${hash}@@${item.filename || songName}`,
+                pic: resolveImageUrl(rawImg) || (coverUrl || null),
+                url: null,
+                duration: Number(item.duration || 0),
+                has_hires: !!(item.sqhash || (item.sqfilesize && item.sqfilesize > 0)),
+              };
+            });
+            return {
+              id: albumId,
+              name: albumName,
+              cover: coverUrl || items[0]?.pic || '',
+              creatorName: singerName,
+              creatorAvatar: null,
+              item: items,
+            };
+          }
         }
-
-        // 第三方接口回退：返回 { playlist: { tracks[] } } 或 { tracks[] }
-        const playlist = data?.playlist || data;
-        const tracks = Array.isArray(playlist?.tracks)
-          ? playlist.tracks
-          : Array.isArray(playlist?.item)
-            ? playlist.item
-            : [];
-        if (tracks.length > 0) {
-          const cover = resolveImageUrl(playlist?.coverImgUrl, playlist?.cover, playlist?.picUrl) || '';
-          return {
-            id: String(playlist?.id || albumId),
-            name: firstString(playlist?.name, playlist?.title, '未知专辑'),
-            cover,
-            creatorName: firstString(playlist?.creator?.nickname, playlist?.creator?.name, playlist?.creator, '未知歌手'),
-            creatorAvatar: resolveImageUrl(playlist?.creator?.avatarUrl, playlist?.creatorAvatar),
-            item: tracks.map((track: any) => mapOnlineSong(track, firstString(track.source, source))),
-          };
-        }
-        continue;
       } catch (err) {
-        console.warn(`Get album detail attempt failed (${url}):`, err);
+        console.warn('Kugou album detail error:', err);
       }
     }
-    console.error(`Get album detail error (ID: ${albumId}): all endpoints failed`);
+
+    // 2. 酷我音乐 (kuwo) 官方接口
+    if (source === 'kuwo' && albumId) {
+      try {
+        const kwUrl = `http://search.kuwo.cn/r.s?pn=0&rn=100&albumid=${encodeURIComponent(albumId)}&stype=albuminfo&show_copyright_off=1&encoding=utf8&rformat=json`;
+        const response = await universalFetch(kwUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://www.kuwo.cn/',
+          }
+        });
+        if (response.ok) {
+          const data = await response.json().catch(() => null);
+          if (data && Array.isArray(data.musiclist) && data.musiclist.length > 0) {
+            const albumName = firstString(data.name, data.title, albumNameOpt, '未知专辑');
+            const singerName = firstString(data.artist, data.fartist, artistNameOpt, '未知歌手');
+            const coverUrl = resolveImageUrl(
+              data.pic,
+              data.hts_img,
+              data.img ? `http://img3.sycdn.kuwo.cn/wmvpic/${data.img}` : '',
+              data.artistpic
+            ) || '';
+
+            const items: OnlineSong[] = data.musiclist.map((item: any) => {
+              const songId = String(item.id || item.musicrid || item.DC_TARGETID || '');
+              const rawPic = [
+                item.pic120,
+                item.web_albumpic_short ? `https://img1.kuwo.cn/star/albumcover/${item.web_albumpic_short}` : '',
+                item.img,
+                coverUrl
+              ].find((u: any) => typeof u === 'string' && u.trim().length > 0);
+              return {
+                id: songId,
+                name: firstString(item.name, item.songname, '未知歌曲'),
+                artist: firstString(item.artist, singerName, '未知歌手'),
+                album: albumName,
+                albumId,
+                source: 'kuwo',
+                url_id: songId,
+                pic_id: songId,
+                lyric_id: songId,
+                pic: resolveImageUrl(rawPic) || (coverUrl || null),
+                url: null,
+                duration: Number(item.duration || 0),
+                has_hires: !!(item.N_MINFO && (item.N_MINFO.includes('flac') || item.N_MINFO.includes('zp'))),
+              };
+            });
+
+            return {
+              id: albumId,
+              name: albumName,
+              cover: coverUrl || items[0]?.pic || '',
+              creatorName: singerName,
+              creatorAvatar: resolveImageUrl(data.artistpic) || null,
+              item: items,
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('Kuwo album detail error:', err);
+      }
+    }
+
+    // 3. 腾讯音乐 (tencent) 官方接口
+    if (source === 'tencent' && albumId) {
+      try {
+        const qqUrl = `https://c.y.qq.com/v8/fcg-bin/fcg_v8_album_info_cp.fcg?albummid=${encodeURIComponent(albumId)}&format=json`;
+        const response = await universalFetch(qqUrl, {
+          headers: { 'Referer': 'https://y.qq.com/' }
+        });
+        if (response.ok) {
+          const data = await response.json().catch(() => null);
+          const d = data?.data;
+          if (d && Array.isArray(d.list) && d.list.length > 0) {
+            const albumName = firstString(d.name, albumNameOpt, '未知专辑');
+            const singerName = firstString(d.singername, artistNameOpt, '未知歌手');
+            const coverUrl = d.mid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${d.mid}.jpg` : '';
+
+            const items: OnlineSong[] = d.list.map((item: any) => {
+              const songId = String(item.songmid || item.songid || '');
+              const singer = Array.isArray(item.singer) ? item.singer.map((s: any) => s.name).join(', ') : singerName;
+              return {
+                id: songId,
+                name: firstString(item.songname, '未知歌曲'),
+                artist: singer,
+                album: albumName,
+                albumId: String(d.mid || albumId),
+                source: 'tencent',
+                url_id: songId,
+                pic_id: String(d.mid || songId),
+                lyric_id: songId,
+                pic: resolveImageUrl(coverUrl) || null,
+                url: null,
+                duration: Number(item.interval || 0),
+                has_hires: !!(item.sizeflac && item.sizeflac > 0),
+              };
+            });
+
+            return {
+              id: albumId,
+              name: albumName,
+              cover: coverUrl,
+              creatorName: singerName,
+              creatorAvatar: null,
+              item: items,
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('Tencent album detail error:', err);
+      }
+    }
+
+    // 4. 咪咕音乐 (migu) 官方接口
+    if (source === 'migu' && albumId) {
+      try {
+        const mgUrl = `https://c.musicapp.migu.cn/MIGUM2.0/v1.0/content/resourceinfo.do?needSimple=01&resourceId=${encodeURIComponent(albumId)}&resourceType=2003`;
+        const response = await universalFetch(mgUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://m.music.migu.cn/'
+          }
+        });
+        if (response.ok) {
+          const data = await response.json().catch(() => null);
+          const res = data?.resource?.[0];
+          if (res && Array.isArray(res.songItems) && res.songItems.length > 0) {
+            const albumName = firstString(res.title, albumNameOpt, '未知专辑');
+            const singerName = firstString(res.singer, artistNameOpt, '未知歌手');
+            const rawCover = res.imgItems?.[0]?.img || res.imgItems?.[1]?.img || '';
+            const coverUrl = resolveImageUrl(rawCover) || '';
+
+            const items: OnlineSong[] = res.songItems.map((item: any) => {
+              const songId = String(item.songId || item.copyrightId || item.contentId || '');
+              const singer = item.singer || (Array.isArray(item.artists) ? item.artists.map((a: any) => a.name).join(', ') : singerName);
+              const itemCover = item.albumImgs?.[0]?.img || coverUrl;
+              let durationSec = 0;
+              if (item.length && typeof item.length === 'string' && item.length.includes(':')) {
+                const parts = item.length.split(':').map(Number);
+                if (parts.length === 3) durationSec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+                else if (parts.length === 2) durationSec = parts[0] * 60 + parts[1];
+              }
+              return {
+                id: songId,
+                name: firstString(item.songName, '未知歌曲'),
+                artist: singer,
+                album: albumName,
+                albumId,
+                source: 'migu',
+                url_id: songId,
+                pic_id: songId,
+                lyric_id: String(item.copyrightId || songId),
+                pic: resolveImageUrl(itemCover) || (coverUrl || null),
+                url: null,
+                duration: durationSec,
+                has_hires: !!(item.codeRate?.SQ || item.codeRate?.ZQ),
+              };
+            });
+
+            return {
+              id: albumId,
+              name: albumName,
+              cover: coverUrl || items[0]?.pic || '',
+              creatorName: singerName,
+              creatorAvatar: null,
+              item: items,
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('Migu album detail error:', err);
+      }
+    }
+
+    // 5. 网易云音乐 (netease) 官方接口与第三方回退
+    if (source === 'netease' && albumId) {
+      const attempts: Array<{ url: string; init?: any }> = [
+        { url: `http://music.163.com/api/v1/album/${albumId}`, init: { method: 'POST', headers: { 'Referer': 'http://music.163.com' } } },
+        { url: `http://music.163.com/api/album/${albumId}`, init: { method: 'POST', headers: { 'Referer': 'http://music.163.com' } } },
+      ];
+      const fallbackEndpoints = getEnabledApiEndpoints();
+      for (const ep of fallbackEndpoints) {
+        attempts.push({ url: `${ep}/api.php?types=playlist&id=${albumId}` });
+      }
+
+      for (const { url, init } of attempts) {
+        try {
+          const response = await universalFetch(url, init || { headers: { 'Referer': 'http://music.163.com' } });
+          if (!response.ok) continue;
+          const data = await response.json();
+
+          const album = data?.album;
+          const songs = Array.isArray(data?.songs) ? data.songs : [];
+          if (album && Array.isArray(data?.songs)) {
+            return {
+              id: String(album.id),
+              name: firstString(album.name, albumNameOpt, '未知专辑'),
+              cover: resolveImageUrl(album.picUrl, album.blurPicUrl) || '',
+              creatorName: firstString(album.artist?.name, artistNameOpt, '未知歌手'),
+              creatorAvatar: resolveImageUrl(album.artist?.picUrl, album.artist?.img1v1Url),
+              item: songs.map((song: any) => mapOnlineSong(song, 'netease')),
+            };
+          }
+
+          const playlist = data?.playlist || data;
+          const tracks = Array.isArray(playlist?.tracks)
+            ? playlist.tracks
+            : Array.isArray(playlist?.item)
+              ? playlist.item
+              : [];
+          if (tracks.length > 0) {
+            const cover = resolveImageUrl(playlist?.coverImgUrl, playlist?.cover, playlist?.picUrl) || '';
+            return {
+              id: String(playlist?.id || albumId),
+              name: firstString(playlist?.name, playlist?.title, albumNameOpt, '未知专辑'),
+              cover,
+              creatorName: firstString(playlist?.creator?.nickname, playlist?.creator?.name, playlist?.creator, artistNameOpt, '未知歌手'),
+              creatorAvatar: resolveImageUrl(playlist?.creator?.avatarUrl, playlist?.creatorAvatar),
+              item: tracks.map((track: any) => mapOnlineSong(track, firstString(track.source, source))),
+            };
+          }
+        } catch (err) {
+          console.warn(`Get album detail attempt failed (${url}):`, err);
+        }
+      }
+    }
+
+    // 6. 智能降级回退 (Fallback by Album Name)：若按 ID 获取失败或无 ID，但有专辑名称，按专辑名+歌手聚合歌曲
+    if (albumNameOpt && albumNameOpt !== '未知专辑' && albumNameOpt !== '-') {
+      try {
+        const queryTerm = artistNameOpt && artistNameOpt !== '未知歌手'
+          ? `${artistNameOpt} ${albumNameOpt}`
+          : albumNameOpt;
+        const searchedSongs = await this.searchSongs(queryTerm, source, 1);
+        if (searchedSongs.length > 0) {
+          // 优先筛选出与该专辑完全一致的歌曲；若少于 1 首则保留搜索出的前 30 首
+          const matchedSongs = searchedSongs.filter(s => s.album && s.album.trim() === albumNameOpt.trim());
+          const finalSongs = matchedSongs.length > 0 ? matchedSongs : searchedSongs;
+          const cover = finalSongs.find(s => s.pic)?.pic || '';
+          return {
+            id: albumId || `search_album_${Date.now()}`,
+            name: albumNameOpt,
+            cover: cover || '',
+            creatorName: artistNameOpt || finalSongs[0]?.artist || '未知歌手',
+            creatorAvatar: null,
+            item: finalSongs,
+          };
+        }
+      } catch (fbErr) {
+        console.warn('Fallback search by album name failed:', fbErr);
+      }
+    }
+
+    console.error(`Get album detail error (ID: ${albumId}, Source: ${source}): all endpoints failed`);
     return null;
   }
 };
