@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen, emit } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
-import { LogicalSize } from '@tauri-apps/api/dpi';
+import { LogicalSize, PhysicalPosition } from '@tauri-apps/api/dpi';
 import {
   Play,
   Pause,
@@ -34,6 +34,37 @@ interface LyricPayload {
   songName: string;
   artist: string;
   isPlaying: boolean;
+}
+
+export const OVERLAY_WIDTH = 560;
+
+/**
+ * 屏幕底部安全边界保护与任务栏磁吸贴靠
+ * 防止用户拖动将窗口下半截拖入任务栏或拖出屏幕导致锁定后"消失"
+ */
+async function snapToSafeArea() {
+  try {
+    const monitor = await currentMonitor();
+    if (!monitor) return;
+    const win = getCurrentWindow();
+    const pos = await win.outerPosition();
+    const size = await win.outerSize();
+
+    // 操作系统工作区底边缘（物理像素，已精确排除任务栏）
+    const workAreaBottom = monitor.workArea?.position && monitor.workArea?.size
+      ? monitor.workArea.position.y + monitor.workArea.size.height
+      : monitor.position.y + monitor.size.height - Math.round(48 * (monitor.scaleFactor || 1));
+
+    const winBottom = pos.y + size.height;
+
+    if (winBottom > workAreaBottom) {
+      // 底边落入任务栏区域，自动优雅吸附停靠在任务栏正上方边缘
+      const targetY = Math.max(monitor.position.y, workAreaBottom - size.height);
+      await win.setPosition(new PhysicalPosition(pos.x, targetY));
+    }
+  } catch (err) {
+    console.warn('Snap to safe area failed:', err);
+  }
 }
 
 const EMPTY: LyricPayload = {
@@ -100,7 +131,8 @@ export function LyricOverlayApp() {
   const applyWindowHeight = useCallback(async (next: DesktopLyricSettings) => {
     try {
       const height = estimateOverlayHeight(next);
-      await getCurrentWindow().setSize(new LogicalSize(720, height));
+      await getCurrentWindow().setSize(new LogicalSize(OVERLAY_WIDTH, height));
+      void snapToSafeArea();
     } catch (err) {
       console.warn('调整桌面歌词窗口高度失败:', err);
     }
@@ -157,11 +189,22 @@ export function LyricOverlayApp() {
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
         getCurrentWindow().startDragging().catch(console.error);
+        const onDragEnd = () => {
+          window.removeEventListener('mouseup', onDragEnd);
+          setTimeout(() => {
+            void snapToSafeArea();
+          }, 120);
+        };
+        window.addEventListener('mouseup', onDragEnd);
       }
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      // 拖拽释放后进行底边防遮挡磁吸校验
+      setTimeout(() => {
+        void snapToSafeArea();
+      }, 80);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -179,7 +222,7 @@ export function LyricOverlayApp() {
     e.preventDefault();
     e.stopPropagation();
     // 避免菜单贴边被裁切
-    const x = Math.min(e.clientX, window.innerWidth - 320);
+    const x = Math.min(e.clientX, window.innerWidth - 280);
     const y = Math.min(e.clientY, window.innerHeight - 48);
     setMenu({ visible: true, x: Math.max(4, x), y: Math.max(4, y) });
   };

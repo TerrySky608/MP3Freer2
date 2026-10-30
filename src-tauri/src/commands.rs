@@ -191,6 +191,9 @@ pub fn set_lyric_overlay_lock(app: AppHandle, locked: bool) -> Result<bool, Stri
             .set_ignore_cursor_events(locked)
             .map_err(|e| format!("设置鼠标穿透失败: {}", e))?;
 
+        // 强化置顶：确保在穿透与非穿透切换时始终维持在最顶层，防止被系统任务栏覆盖
+        let _ = overlay.set_always_on_top(true);
+
         OVERLAY_LOCKED.store(locked, Ordering::SeqCst);
         let _ = app.emit("overlay-lock-state", locked);
         Ok(locked)
