@@ -5,7 +5,7 @@ export type MusicSource = 'netease' | 'tencent' | 'kugou' | 'kuwo' | 'migu';
  * package.json / tauri.conf.json / Cargo.toml 必须与此保持一致。
  * 显示时统一带 v 前缀。
  */
-export const APP_VERSION = '26.10.32';
+export const APP_VERSION = '26.10.33';
 
 /** 音质档位：标准 128 / 高品 320 / 无损 / Hi-Res */
 export type AudioQuality = 'standard' | 'high' | 'lossless' | 'hires';

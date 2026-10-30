@@ -119,12 +119,12 @@ export const LocalMusicPanel: React.FC = () => {
                         <Plus size={14} />
                       </button>
                       <button
-                        className={`song-row-action-btn ${isFavorite(song.id) ? 'active' : ''}`}
+                        className={`song-row-action-btn ${isFavorite(song) ? 'active' : ''}`}
                         onClick={() => void toggleFavorite(song)}
-                        title={isFavorite(song.id) ? "取消收藏" : "收藏歌曲"}
-                        style={isFavorite(song.id) ? { color: '#ef4444' } : undefined}
+                        title={isFavorite(song) ? "取消收藏" : "收藏歌曲"}
+                        style={isFavorite(song) ? { color: '#ef4444' } : undefined}
                       >
-                        <Heart size={14} fill={isFavorite(song.id) ? '#ef4444' : 'none'} color={isFavorite(song.id) ? '#ef4444' : 'currentColor'} />
+                        <Heart size={14} fill={isFavorite(song) ? '#ef4444' : 'none'} color={isFavorite(song) ? '#ef4444' : 'currentColor'} />
                       </button>
                     </div>
                 </div>

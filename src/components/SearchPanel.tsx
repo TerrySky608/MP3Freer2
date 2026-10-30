@@ -400,7 +400,7 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
             </button>
             {(() => {
               const playerSong = toPlayerSong(song);
-              const isFav = isFavorite(playerSong.id);
+              const isFav = isFavorite(playerSong);
               return (
                 <button
                   className={`song-row-action-btn ${isFav ? 'active' : ''}`}

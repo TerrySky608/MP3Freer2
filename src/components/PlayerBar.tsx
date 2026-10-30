@@ -243,12 +243,12 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ onToggleFullscreen, isLyri
       {/* 右侧：音量与功能 */}
       <div className="player-right">
         <button
-          className={`control-btn mobile-keep-btn ${currentSong && isFavorite(currentSong.id) ? 'favorited' : ''}`}
+          className={`control-btn mobile-keep-btn ${currentSong && isFavorite(currentSong) ? 'favorited' : ''}`}
           onClick={handleFavorite}
           title="收藏"
-          style={{ color: currentSong && isFavorite(currentSong.id) ? '#ef4444' : undefined }}
+          style={{ color: currentSong && isFavorite(currentSong) ? '#ef4444' : undefined }}
         >
-          <Heart size={16} fill={currentSong && isFavorite(currentSong.id) ? '#ef4444' : 'none'} />
+          <Heart size={16} fill={currentSong && isFavorite(currentSong) ? '#ef4444' : 'none'} />
         </button>
 
         <button className="control-btn mobile-keep-btn" onClick={changePlayMode} title={getPlayModeTitle()}>

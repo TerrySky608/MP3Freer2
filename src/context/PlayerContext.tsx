@@ -1,4 +1,4 @@
-﻿import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 const isTauri = typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ !== undefined;
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -34,6 +34,8 @@ import {
   normalizePersistedSongs,
   normalizePersistedHistory,
   stripEphemeralStreamUrl,
+  isSameSong,
+  deduplicateSongs,
 } from '../utils/songUtils';
 import {
   backupFavoritesToCloud,
@@ -72,7 +74,7 @@ interface PlayerContextType {
   favoriteSongs: Song[];
   favoritePlaylists: FavoritePlaylist[];
   favoriteArtists: FavoriteArtist[];
-  isFavorite: (songId: string) => boolean;
+  isFavorite: (songOrId: Song | string | null | undefined) => boolean;
   isFavoritePlaylist: (id: string) => boolean;
   toggleFavoritePlaylist: (playlistInfo: FavoritePlaylist) => void;
   isFavoriteArtist: (id: string) => boolean;
@@ -358,7 +360,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const savedFavorites = storage.getString(StorageKeys.FAVORITE_SONGS);
     const parsedFavs = savedFavorites ? storage.getJSON<Song[]>(StorageKeys.FAVORITE_SONGS, []) : [];
     if (parsedFavs.length > 0) {
-      setFavoriteSongs(parsedFavs.map(s => (s.isLocal ? s : normalizePersistedSong(s))));
+      const cleanedFavs = deduplicateSongs(parsedFavs.map(s => (s.isLocal ? s : normalizePersistedSong(s))));
+      setFavoriteSongs(cleanedFavs);
+      if (cleanedFavs.length !== parsedFavs.length) {
+        storage.setJSON(StorageKeys.FAVORITE_SONGS, cleanedFavs);
+      }
     }
 
     // 启动 1.5 秒后（待网络与首屏就绪），无论桌面端还是安卓版，自动执行一次跨设备智能云同步
@@ -378,6 +384,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               { songs: localFavSongs, playlists: localPlaylists, artists: localArtists },
               cloudData!
             );
+            merged.songs = deduplicateSongs(merged.songs);
             const isDiff = merged.songs.length !== localFavSongs.length ||
               merged.playlists.length !== localPlaylists.length ||
               merged.artists.length !== localArtists.length;
@@ -1336,7 +1343,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   };
 
-  const isFavorite = (songId: string) => favoriteSongs.some(s => s.id === songId);
+  const isFavorite = (songOrId: Song | string | null | undefined): boolean => {
+    if (!songOrId) return false;
+    return favoriteSongs.some(s => isSameSong(s, songOrId));
+  };
 
   const isFavoritePlaylist = (id: string) => favoritePlaylists.some(p => p.id === id);
 
@@ -1364,7 +1374,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const persistFavorites = (updater: (songs: Song[]) => Song[]) => {
     setFavoriteSongs(prev => {
-      const updated = updater(prev);
+      const updated = deduplicateSongs(updater(prev));
       storage.setJSON(
         StorageKeys.FAVORITE_SONGS,
         updated.map(s => (s.isLocal ? s : stripEphemeralStreamUrl(s))),
@@ -1375,7 +1385,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const upsertFavorite = (song: Song) => {
     persistFavorites(prev => {
-      const idx = prev.findIndex(item => item.id === song.id);
+      const idx = prev.findIndex(item => isSameSong(item, song));
       if (idx < 0) return [...prev, song];
 
       const updated = [...prev];
@@ -1385,13 +1395,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const toggleFavorite = async (song: Song) => {
-    const existsInFavorites = favoriteSongs.some(s => s.id === song.id);
+    const existsInFavorites = favoriteSongs.some(s => isSameSong(s, song));
     if (existsInFavorites) {
       favoriteDownloadTokenRef.current.set(
         song.id,
         (favoriteDownloadTokenRef.current.get(song.id) || 0) + 1,
       );
-      persistFavorites(prev => prev.filter(s => s.id !== song.id));
+      persistFavorites(prev => prev.filter(s => !isSameSong(s, song)));
       return;
     }
 
