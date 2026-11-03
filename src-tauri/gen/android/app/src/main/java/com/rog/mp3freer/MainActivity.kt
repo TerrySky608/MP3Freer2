@@ -167,11 +167,20 @@ class MainActivity : TauriActivity() {
   }
 
   private fun initMediaSession() {
-    mediaSession = MediaSessionCompat(this, "MP3FreerMediaSession").apply {
+    val mbrIntent = Intent(Intent.ACTION_MEDIA_BUTTON, null, this, androidx.media.session.MediaButtonReceiver::class.java)
+    val mbrPendingIntent = PendingIntent.getBroadcast(
+      this,
+      0,
+      mbrIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    mediaSession = MediaSessionCompat(this, "MP3FreerMediaSession", null, mbrPendingIntent).apply {
       setFlags(
         MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
         MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
       )
+      setMediaButtonReceiver(mbrPendingIntent)
       setCallback(object : MediaSessionCompat.Callback() {
         override fun onPlay() = dispatchMediaAction("play")
         override fun onPause() = dispatchMediaAction("pause")
@@ -196,29 +205,33 @@ class MainActivity : TauriActivity() {
             @Suppress("DEPRECATION")
             mediaButtonEvent?.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
           }
-          if (keyEvent != null && keyEvent.action == KeyEvent.ACTION_DOWN) {
-            when (keyEvent.keyCode) {
-              KeyEvent.KEYCODE_HEADSETHOOK,
-              KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                dispatchMediaAction("toggle")
-                return true
+          if (keyEvent != null) {
+            if (keyEvent.action == KeyEvent.ACTION_DOWN) {
+              when (keyEvent.keyCode) {
+                KeyEvent.KEYCODE_HEADSETHOOK,
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                  dispatchMediaAction("toggle")
+                  return true
+                }
+                KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                  dispatchMediaAction("play")
+                  return true
+                }
+                KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                  dispatchMediaAction("pause")
+                  return true
+                }
+                KeyEvent.KEYCODE_MEDIA_NEXT -> {
+                  dispatchMediaAction("next")
+                  return true
+                }
+                KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
+                  dispatchMediaAction("prev")
+                  return true
+                }
               }
-              KeyEvent.KEYCODE_MEDIA_PLAY -> {
-                dispatchMediaAction("play")
-                return true
-              }
-              KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                dispatchMediaAction("pause")
-                return true
-              }
-              KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                dispatchMediaAction("next")
-                return true
-              }
-              KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                dispatchMediaAction("prev")
-                return true
-              }
+            } else if (keyEvent.action == KeyEvent.ACTION_UP) {
+              return true
             }
           }
           return super.onMediaButtonEvent(mediaButtonEvent)
@@ -511,6 +524,13 @@ class MainActivity : TauriActivity() {
         Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: ""
       } catch (_: Throwable) {
         ""
+      }
+    }
+
+    @JavascriptInterface
+    fun exitApp() {
+      mainHandler.post {
+        finishAffinity()
       }
     }
   }

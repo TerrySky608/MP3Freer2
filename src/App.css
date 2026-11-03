@@ -21,6 +21,86 @@
   color-scheme: dark;
 }
 
+/* 白天模式 (Light Mode) 全局变量与界面质感适配 */
+:root[data-theme="light"],
+body[data-theme="light"] {
+  --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #edf2f7 50%, #f1f5f9 100%);
+  --glass-bg: rgba(255, 255, 255, 0.78);
+  --glass-bg-hover: rgba(255, 255, 255, 0.92);
+  --glass-bg-active: rgba(255, 255, 255, 0.98);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-border-hover: rgba(0, 0, 0, 0.16);
+
+  --primary-color: #9333ea;
+  --primary-hover: #7e22ce;
+  --secondary-color: #2563eb;
+  --text-main: #0f172a;
+  --text-muted: #475569;
+  --text-dark: #94a3b8;
+
+  color-scheme: light;
+}
+
+body[data-theme="light"] {
+  background: var(--bg-gradient);
+  color: var(--text-main);
+}
+
+body[data-theme="light"] .aurora-bg.aurora-1 {
+  background: radial-gradient(circle, rgba(147, 51, 234, 0.07) 0%, rgba(255, 255, 255, 0) 70%);
+}
+
+body[data-theme="light"] .aurora-bg.aurora-2 {
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.07) 0%, rgba(255, 255, 255, 0) 70%);
+}
+
+body[data-theme="light"] .glass-card {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+body[data-theme="light"] .sidebar {
+  background: rgba(255, 255, 255, 0.88);
+  border-right-color: rgba(0, 0, 0, 0.08);
+}
+
+body[data-theme="light"] .player-bar {
+  background: rgba(255, 255, 255, 0.94);
+  border-top-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.06);
+}
+
+body[data-theme="light"] .mobile-nav-menu {
+  background: rgba(255, 255, 255, 0.95);
+  border-top-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.05);
+}
+
+body[data-theme="light"] .input-field {
+  background: rgba(0, 0, 0, 0.04);
+  color: #0f172a;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+body[data-theme="light"] .input-field:focus {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: var(--primary-color);
+}
+
+body[data-theme="light"] .edge-swipe-indicator {
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 4px 0 18px rgba(0, 0, 0, 0.12);
+}
+
+body[data-theme="light"] .song-row:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+body[data-theme="light"] .song-row.active {
+  background: rgba(147, 51, 234, 0.08);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;

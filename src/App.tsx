@@ -17,6 +17,9 @@ import { YearlyReport } from './components/YearlyReport';
 import { MyMusicMobilePanel } from './components/MyMusicMobilePanel';
 import { useShortcuts } from './hooks/useShortcuts';
 import { useEdgeSwipeBack } from './hooks/useEdgeSwipeBack';
+import { useTabSwipe } from './hooks/useTabSwipe';
+import { useToast } from './context/ToastContext';
+import { applyTheme, getSavedTheme } from './utils/themeManager';
 import { registerBackHandler } from './utils/navigationManager';
 import { isAndroid } from './utils/platform';
 import './App.css';
@@ -35,8 +38,23 @@ function MainLayout() {
   const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState<boolean>(false);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
 
+  const toast = useToast();
+  const lastExitSwipeTimeRef = useRef<number>(0);
+
+  // 初始化持久化主题（白天 / 黑夜）
+  useEffect(() => {
+    applyTheme(getSavedTheme());
+  }, []);
+
   // 屏幕左侧向右滑返回上一页手势
   const { indicatorOffset } = useEdgeSwipeBack({ edgeWidth: 40, threshold: 55 });
+
+  // 4 个核心菜单页面左右滑动手势切换
+  useTabSwipe({
+    activeTab,
+    onTabChange: (tab) => handleSelectTab(tab),
+    disabled: isLyricOpen || isReportOpen || isShortcutHelpOpen,
+  });
 
   const handleSelectTab = (tab: string) => {
     if (tab !== 'playlist') {
@@ -85,9 +103,31 @@ function MainLayout() {
         tabHistoryRef.current = ['recommend'];
         return true;
       }
-      return false;
+
+      // 6. 处于最外层推荐页：2 秒内再次滑动退出程序
+      const now = Date.now();
+      if (now - lastExitSwipeTimeRef.current < 2000) {
+        if (typeof window !== 'undefined' && window.AndroidMediaBridge?.exitApp) {
+          window.AndroidMediaBridge.exitApp();
+        } else {
+          try {
+            import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+              getCurrentWindow().close();
+            }).catch(() => {
+              window.close();
+            });
+          } catch (_) {
+            window.close();
+          }
+        }
+        return true;
+      } else {
+        lastExitSwipeTimeRef.current = now;
+        toast.info('再次滑动将退出程序');
+        return true;
+      }
     });
-  }, [isLyricOpen, isReportOpen, isShortcutHelpOpen, activeTab]);
+  }, [isLyricOpen, isReportOpen, isShortcutHelpOpen, activeTab, toast]);
 
   const handleTogglePlaylist = () => {
     if (isLyricOpen) {

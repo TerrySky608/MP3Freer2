@@ -88,6 +88,7 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
       return true;
     });
   }, [selectedPlaylist]);
+
   const [detailPage, setDetailPage] = useState<number>(1);
   const [playlistLoading, setPlaylistLoading] = useState<boolean>(false);
   const [showBackTop, setShowBackTop] = useState<boolean>(false);
@@ -111,6 +112,16 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
   const [guessLikes, setGuessLikes] = useState<string[]>(() => pickRandomWords(DEFAULT_GUESS_POOL, 6));
   const [hotLoading, setHotLoading] = useState<boolean>(false);
   const guessPoolRef = useRef<string[]>([...DEFAULT_GUESS_POOL]);
+
+  // 注册搜索引导（猜你喜欢/热搜榜）打开时的边缘向右滑或返回拦截
+  useEffect(() => {
+    if (!showSearchGuide) return;
+    return registerBackHandler(() => {
+      setShowSearchGuide(false);
+      searchInputRef.current?.blur();
+      return true;
+    });
+  }, [showSearchGuide]);
 
   const refreshGuessLikes = useCallback(() => {
     setGuessLikes(pickRandomWords(guessPoolRef.current, 6));
@@ -419,6 +430,9 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
 
   const handleResultsScroll = (event: React.UIEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
+    if (document.activeElement === searchInputRef.current) {
+      searchInputRef.current?.blur();
+    }
     setShowBackTop(target.scrollTop > 200);
     const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
     if (distanceToBottom < 160) {
@@ -740,7 +754,17 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
         </form>
       </div>
 
-      <div className="search-panel-content-scroll" style={{ flex: 1, overflowY: 'auto' }} onScroll={handleResultsScroll} ref={scrollContainerRef}>
+      <div
+        className="search-panel-content-scroll"
+        style={{ flex: 1, overflowY: 'auto' }}
+        onScroll={handleResultsScroll}
+        onTouchMove={() => {
+          if (document.activeElement === searchInputRef.current) {
+            searchInputRef.current?.blur();
+          }
+        }}
+        ref={scrollContainerRef}
+      >
         {selectedPlaylist ? (
           <div className="glass-card" style={{ display: 'flex', flexDirection: 'column' }}>
             <button className="back-btn" onClick={() => setSelectedPlaylist(null)} title={TEXT.back}>

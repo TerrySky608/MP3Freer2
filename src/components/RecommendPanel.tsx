@@ -11,7 +11,10 @@ import {
   RefreshCw,
   Sparkles,
   ArrowLeft,
+  Sun,
+  Moon,
 } from 'lucide-react';
+import { getSavedTheme, toggleTheme, ThemeMode } from '../utils/themeManager';
 import { MusicApiService, OnlinePlaylist, OnlineSong, PlaylistDetail } from '../services/musicApi';
 import { usePlayer } from '../context/PlayerContext';
 import { useToast } from '../context/ToastContext';
@@ -92,6 +95,12 @@ export const RecommendPanel: React.FC<{ active?: boolean }> = ({ active = true }
 
   // 懒加载控制：初始展示 8 首，上滑触底增加
   const [visibleCount, setVisibleCount] = useState<number>(8);
+  const [currentTheme, setCurrentTheme] = useState<ThemeMode>(() => getSavedTheme());
+
+  const handleToggleTheme = () => {
+    const next = toggleTheme();
+    setCurrentTheme(next);
+  };
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
 
   // 基于听歌年报最爱歌曲（不随单次听歌频繁切换，仅在收藏列表变化或初次加载时更新）
@@ -530,21 +539,36 @@ export const RecommendPanel: React.FC<{ active?: boolean }> = ({ active = true }
           </span>
         </div>
         <button
+          type="button"
           className="icon-btn"
-          onClick={() => void loadRecommendData(true)}
-          disabled={loading}
-          title="刷新推荐内容"
+          onClick={handleToggleTheme}
+          title={currentTheme === 'dark' ? '切换为白天模式' : '切换为黑夜模式'}
           style={{
             height: 28,
-            padding: '0 10px',
+            padding: '0 12px',
             borderRadius: 14,
-            background: 'rgba(255,255,255,0.06)',
+            background: 'var(--glass-bg-hover)',
+            border: '1px solid var(--glass-border)',
+            color: 'var(--text-main)',
             fontSize: 12,
-            gap: 5,
+            gap: 6,
+            display: 'inline-flex',
+            alignItems: 'center',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
           }}
         >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          <span>刷新</span>
+          {currentTheme === 'dark' ? (
+            <>
+              <Sun size={14} color="#f59e0b" />
+              <span>白天</span>
+            </>
+          ) : (
+            <>
+              <Moon size={14} color="#a855f7" />
+              <span>黑夜</span>
+            </>
+          )}
         </button>
       </div>
 

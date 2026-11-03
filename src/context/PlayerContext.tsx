@@ -1227,25 +1227,20 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     const cleanup = setupMediaSessionHandlers({
       onPlay: () => {
-        const audio = audioRef.current;
-        if (audio && audio.src) {
-          playIntentRef.current = true;
-          audio.play().catch(console.error);
-        }
+        if (!isPlayingRef.current) togglePlay();
       },
       onPause: () => {
-        const audio = audioRef.current;
-        if (audio) {
-          playIntentRef.current = false;
-          audio.pause();
-        }
+        if (isPlayingRef.current) togglePlay();
+      },
+      onToggle: () => {
+        togglePlay();
       },
       onNext: () => nextSong(),
       onPrev: () => prevSong(),
       onSeek: (time: number) => seekTo(time),
     });
     return cleanup;
-  }, [nextSong, prevSong]);
+  }, [nextSong, prevSong, togglePlay]);
 
   const setVolumeLevel = (vol: number) => {
     const safeVol = Math.max(0, Math.min(1, vol));

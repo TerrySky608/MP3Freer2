@@ -12,13 +12,15 @@ declare global {
         currentSec: number
       ) => void;
       clearMedia: () => void;
+      exitApp?: () => void;
     };
   }
 }
 
-interface MediaSessionActionHandlers {
+export interface MediaSessionActionHandlers {
   onPlay: () => void;
   onPause: () => void;
+  onToggle?: () => void;
   onNext: () => void;
   onPrev: () => void;
   onSeek?: (time: number) => void;
@@ -140,15 +142,23 @@ export function setupMediaSessionHandlers(handlers: MediaSessionActionHandlers):
   const nativeListener = (e: Event) => {
     const custom = e as CustomEvent;
     const detail = custom.detail;
-    if (detail === 'play') handlers.onPlay();
-    else if (detail === 'pause') handlers.onPause();
-    else if (detail === 'toggle') {
-      if (lastIsPlayingCache) handlers.onPause();
-      else handlers.onPlay();
-    }
-    else if (detail === 'next') handlers.onNext();
-    else if (detail === 'prev') handlers.onPrev();
-    else if (typeof detail === 'object' && detail?.action === 'seek' && typeof detail?.position === 'number' && handlers.onSeek) {
+    if (detail === 'play') {
+      handlers.onPlay();
+    } else if (detail === 'pause') {
+      handlers.onPause();
+    } else if (detail === 'toggle') {
+      if (handlers.onToggle) {
+        handlers.onToggle();
+      } else if (lastIsPlayingCache) {
+        handlers.onPause();
+      } else {
+        handlers.onPlay();
+      }
+    } else if (detail === 'next') {
+      handlers.onNext();
+    } else if (detail === 'prev') {
+      handlers.onPrev();
+    } else if (typeof detail === 'object' && detail?.action === 'seek' && typeof detail?.position === 'number' && handlers.onSeek) {
       handlers.onSeek(detail.position);
     }
   };
