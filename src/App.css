@@ -4278,6 +4278,33 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   transform: scale(0.95);
 }
 
+/* ========================================================
+   屏幕左侧向右滑返回指示器 (Edge Swipe Back Indicator)
+   ======================================================== */
+.edge-swipe-indicator {
+  position: fixed;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 999999;
+  width: 42px;
+  height: 42px;
+  border-radius: 0 21px 21px 0;
+  background: rgba(25, 20, 40, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-left: none;
+  box-shadow: 4px 0 18px rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  pointer-events: none;
+  user-select: none;
+  transition: opacity 0.15s ease;
+}
+
 
 
 

@@ -8,6 +8,7 @@ import { toPlayerSong, isSameSong } from '../utils/songUtils';
 import { ArtistBanner } from './ArtistBanner';
 import { DiscoveryView } from './DiscoveryView';
 import { CoverImage } from './CoverImage';
+import { registerBackHandler } from '../utils/navigationManager';
 
 const PAGE_SIZE = 30;
 const SEARCH_HISTORY_KEY = 'mp3freer_search_history';
@@ -78,6 +79,15 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
   const [playlistPage, setPlaylistPage] = useState<number>(1);
   const [playlistHasMore, setPlaylistHasMore] = useState<boolean>(false);
   const [selectedPlaylist, setSelectedPlaylist] = useState<PlaylistDetail | null>(null);
+
+  // 注册屏幕边缘向右滑或全局返回动作拦截
+  useEffect(() => {
+    if (!selectedPlaylist) return;
+    return registerBackHandler(() => {
+      setSelectedPlaylist(null);
+      return true;
+    });
+  }, [selectedPlaylist]);
   const [detailPage, setDetailPage] = useState<number>(1);
   const [playlistLoading, setPlaylistLoading] = useState<boolean>(false);
   const [showBackTop, setShowBackTop] = useState<boolean>(false);

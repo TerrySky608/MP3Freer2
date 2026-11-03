@@ -19,6 +19,7 @@ import { toPlayerSong, isSameSong } from '../utils/songUtils';
 import { computeReportStats } from '../utils/reportStats';
 import { MUSIC_SOURCES } from '../settings';
 import { CoverImage } from './CoverImage';
+import { registerBackHandler } from '../utils/navigationManager';
 import type { Song } from '../types/music';
 
 const RECOMMEND_TTL_MS = 15 * 60 * 1000;
@@ -135,6 +136,15 @@ export const RecommendPanel: React.FC<{ active?: boolean }> = ({ active = true }
     | { type: 'playlist'; detail: PlaylistDetail }
     | null
   >(null);
+
+  // 注册屏幕边缘向右滑或全局返回动作拦截
+  useEffect(() => {
+    if (!detailView) return;
+    return registerBackHandler(() => {
+      setDetailView(null);
+      return true;
+    });
+  }, [detailView]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastFetchedAtRef = useRef<number>(0);

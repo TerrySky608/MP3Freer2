@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { ChevronLeft } from 'lucide-react';
 import { PlayerProvider } from './context/PlayerContext';
 import { ToastProvider } from './context/ToastContext';
 import { Sidebar } from './components/Sidebar';
@@ -14,8 +15,9 @@ import { ShortcutHelpModal } from './components/ShortcutHelpModal';
 import { HistoryPanel } from './components/HistoryPanel';
 import { YearlyReport } from './components/YearlyReport';
 import { MyMusicMobilePanel } from './components/MyMusicMobilePanel';
-import { DynamicIsland } from './components/DynamicIsland';
 import { useShortcuts } from './hooks/useShortcuts';
+import { useEdgeSwipeBack } from './hooks/useEdgeSwipeBack';
+import { registerBackHandler } from './utils/navigationManager';
 import { isAndroid } from './utils/platform';
 import './App.css';
 
@@ -28,19 +30,64 @@ function MainLayout() {
 
   const [activeTab, setActiveTab] = useState<string>('recommend');
   const prevTabRef = useRef<string>('recommend');
+  const tabHistoryRef = useRef<string[]>(['recommend']);
   const [isLyricOpen, setIsLyricOpen] = useState<boolean>(false);
   const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState<boolean>(false);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
+
+  // 屏幕左侧向右滑返回上一页手势
+  const { indicatorOffset } = useEdgeSwipeBack({ edgeWidth: 40, threshold: 55 });
 
   const handleSelectTab = (tab: string) => {
     if (tab !== 'playlist') {
       prevTabRef.current = tab;
     }
     setActiveTab(tab);
+    if (tabHistoryRef.current[tabHistoryRef.current.length - 1] !== tab) {
+      tabHistoryRef.current.push(tab);
+      if (tabHistoryRef.current.length > 20) {
+        tabHistoryRef.current.shift();
+      }
+    }
     if (isLyricOpen) {
       setIsLyricOpen(false);
     }
   };
+
+  // 注册顶层全局返回动作（支持左侧边缘右滑与 Android 物理返回键）
+  useEffect(() => {
+    return registerBackHandler(() => {
+      // 1. 全屏歌词浮层优先返回
+      if (isLyricOpen) {
+        setIsLyricOpen(false);
+        return true;
+      }
+      // 2. 年报弹窗
+      if (isReportOpen) {
+        setIsReportOpen(false);
+        return true;
+      }
+      // 3. 快捷键帮助弹窗
+      if (isShortcutHelpOpen) {
+        setIsShortcutHelpOpen(false);
+        return true;
+      }
+      // 4. Tab 导航历史栈回退
+      if (tabHistoryRef.current.length > 1) {
+        tabHistoryRef.current.pop(); // 弹出当前 Tab
+        const prevTab = tabHistoryRef.current[tabHistoryRef.current.length - 1] || 'recommend';
+        setActiveTab(prevTab);
+        return true;
+      }
+      // 5. 若已在顶层但非 recommend，回退到主推荐页
+      if (activeTab !== 'recommend') {
+        setActiveTab('recommend');
+        tabHistoryRef.current = ['recommend'];
+        return true;
+      }
+      return false;
+    });
+  }, [isLyricOpen, isReportOpen, isShortcutHelpOpen, activeTab]);
 
   const handleTogglePlaylist = () => {
     if (isLyricOpen) {
@@ -101,9 +148,6 @@ function MainLayout() {
       <div className="aurora-bg aurora-1" />
       <div className="aurora-bg aurora-2" />
 
-      {/* 顶部中央前置摄像头灵动岛交互 */}
-      <DynamicIsland />
-
       <Sidebar
         activeTab={activeTab}
         setActiveTab={handleSelectTab}
@@ -143,6 +187,19 @@ function MainLayout() {
         isOpen={isReportOpen}
         onClose={() => setIsReportOpen(false)}
       />
+
+      {/* 屏幕左边缘向右滑返回视觉指示器 */}
+      {indicatorOffset !== null && (
+        <div
+          className="edge-swipe-indicator"
+          style={{
+            transform: `translate(${indicatorOffset - 42}px, -50%)`,
+            opacity: Math.min(indicatorOffset / 35, 1),
+          }}
+        >
+          <ChevronLeft size={22} />
+        </div>
+      )}
     </div>
   );
 }

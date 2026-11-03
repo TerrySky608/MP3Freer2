@@ -3,15 +3,12 @@ package com.rog.mp3freer
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -37,8 +34,6 @@ class MainActivity : TauriActivity() {
   private var webView: WebView? = null
   private var mediaSession: MediaSessionCompat? = null
   private var notificationManager: NotificationManager? = null
-  private var audioManager: AudioManager? = null
-  private var audioFocusRequest: Any? = null
   private var isCurrentlyPlaying: Boolean = false
   private var wakeLock: PowerManager.WakeLock? = null
   private var wifiLock: WifiManager.WifiLock? = null
@@ -61,20 +56,10 @@ class MainActivity : TauriActivity() {
         "com.rog.mp3freer.ACTION_TOGGLE" -> dispatchMediaAction("toggle")
         "com.rog.mp3freer.ACTION_NEXT" -> dispatchMediaAction("next")
         AudioManager.ACTION_AUDIO_BECOMING_NOISY -> {
-          // 耳机拔出 / 蓝牙设备断开 -> 自动暂停，防外放社死保护
+          // 官方标准机制：耳机拔出 / 蓝牙设备断开 -> 自动暂停，防外放社死保护
           if (isCurrentlyPlaying) {
             dispatchMediaAction("pause")
-            notifyIsland("🎧 耳机已断开 · 已自动暂停", "⏸️")
           }
-        }
-        Intent.ACTION_HEADSET_PLUG -> {
-          val state = intent.getIntExtra("state", -1)
-          if (state == 1) {
-            notifyIsland("🎧 耳机已连接 · 开启纯净音质", "🎧")
-          }
-        }
-        BluetoothDevice.ACTION_ACL_CONNECTED -> {
-          notifyIsland("🎧 蓝牙耳机已连接 · 开启纯净音质", "🎧")
         }
       }
     }
@@ -128,16 +113,12 @@ class MainActivity : TauriActivity() {
       registerReceiver(mediaReceiver, customFilter)
     }
 
-    // 2. 注册系统级耳机插拔、蓝牙连接与防外放广播
-    val systemFilter = IntentFilter().apply {
-      addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-      addAction(Intent.ACTION_HEADSET_PLUG)
-      addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
-    }
+    // 2. 注册系统级耳机拔出断开防外放广播
+    val noisyFilter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-      registerReceiver(mediaReceiver, systemFilter, Context.RECEIVER_EXPORTED)
+      registerReceiver(mediaReceiver, noisyFilter, Context.RECEIVER_EXPORTED)
     } else {
-      registerReceiver(mediaReceiver, systemFilter)
+      registerReceiver(mediaReceiver, noisyFilter)
     }
 
     // 兜底：若 onWebViewCreate 未被触发，延迟查找 DecorView
@@ -179,7 +160,6 @@ class MainActivity : TauriActivity() {
     try {
       unregisterReceiver(mediaReceiver)
     } catch (_: Throwable) {}
-    abandonAudioFocus()
     releaseLocksImmediately()
     mediaSession?.release()
     notificationManager?.cancel(NOTIFICATION_ID)
@@ -302,77 +282,6 @@ class MainActivity : TauriActivity() {
     }
   }
 
-  private fun notifyIsland(text: String, icon: String = "🎧") {
-    mainHandler.post {
-      val escapedText = text.replace("'", "\\'")
-      val escapedIcon = icon.replace("'", "\\'")
-      webView?.evaluateJavascript(
-        "window.dispatchEvent(new CustomEvent('islandAlert', { detail: { text: '$escapedText', icon: '$escapedIcon' } }));",
-        null
-      )
-    }
-  }
-
-  private fun requestAudioFocus() {
-    try {
-      if (audioManager == null) {
-        audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-      }
-      val am = audioManager ?: return
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        if (audioFocusRequest == null) {
-          val playbackAttributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_MEDIA)
-            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-            .build()
-          audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-            .setAudioAttributes(playbackAttributes)
-            .setAcceptsDelayedFocusGain(true)
-            .setOnAudioFocusChangeListener { focusChange ->
-              when (focusChange) {
-                AudioManager.AUDIOFOCUS_LOSS,
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                  dispatchMediaAction("pause")
-                }
-              }
-            }
-            .build()
-        }
-        (audioFocusRequest as? AudioFocusRequest)?.let {
-          am.requestAudioFocus(it)
-        }
-      } else {
-        @Suppress("DEPRECATION")
-        am.requestAudioFocus(
-          { focusChange ->
-            when (focusChange) {
-              AudioManager.AUDIOFOCUS_LOSS,
-              AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                dispatchMediaAction("pause")
-              }
-            }
-          },
-          AudioManager.STREAM_MUSIC,
-          AudioManager.AUDIOFOCUS_GAIN
-        )
-      }
-    } catch (_: Throwable) {}
-  }
-
-  private fun abandonAudioFocus() {
-    try {
-      val am = audioManager ?: return
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        (audioFocusRequest as? AudioFocusRequest)?.let {
-          am.abandonAudioFocusRequest(it)
-        }
-      } else {
-        @Suppress("DEPRECATION")
-        am.abandonAudioFocus(null)
-      }
-    } catch (_: Throwable) {}
-  }
-
   private fun updateNotification(
     title: String,
     artist: String,
@@ -384,7 +293,7 @@ class MainActivity : TauriActivity() {
     val session = mediaSession ?: return
     isCurrentlyPlaying = isPlaying
 
-    // 更新系统 MediaSession 播放状态与元数据
+    // 更新系统 MediaSession 播放状态与元数据（各大国产 ROM 据此在状态栏/摄像头旁显示系统级灵动胶囊）
     val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
     val actions = PlaybackStateCompat.ACTION_PLAY or
       PlaybackStateCompat.ACTION_PAUSE or
@@ -465,13 +374,11 @@ class MainActivity : TauriActivity() {
 
       val notif = notifBuilder.build()
       if (isPlaying) {
-        requestAudioFocus()
         cancelStopService()
         acquireLocks()
         MediaPlaybackService.start(this, notif)
       } else {
         // 切歌缓冲或暂停期间：保持前台服务运行与通知栏更新，防抖延时 60 秒
-        abandonAudioFocus()
         MediaPlaybackService.update(this, notif)
         scheduleStopService(60000L)
       }
@@ -591,7 +498,6 @@ class MainActivity : TauriActivity() {
     fun clearMedia() {
       mainHandler.post {
         isCurrentlyPlaying = false
-        abandonAudioFocus()
         MediaPlaybackService.stop(this@MainActivity)
         releaseLocksImmediately()
         notificationManager?.cancel(NOTIFICATION_ID)
@@ -606,6 +512,24 @@ class MainActivity : TauriActivity() {
       } catch (_: Throwable) {
         ""
       }
+    }
+  }
+
+  // 手机系统返回键 / 边缘手势返回拦截
+  override fun onBackPressed() {
+    val wv = webView
+    if (wv != null) {
+      wv.evaluateJavascript(
+        "(function() { return window.__handleAppBack ? window.__handleAppBack() : false; })();"
+      ) { result ->
+        val handled = result?.toBoolean() ?: false
+        if (!handled) {
+          // 前端无可返回内容：将应用退到后台保持音乐播放，不销毁 Activity
+          moveTaskToBack(true)
+        }
+      }
+    } else {
+      moveTaskToBack(true)
     }
   }
 

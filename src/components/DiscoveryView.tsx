@@ -10,6 +10,7 @@ import { usePlayer } from '../context/PlayerContext';
 import { Play, Music, Flame, Mic2, Compass, Disc, Loader2, ArrowLeft } from 'lucide-react';
 import { toPlayerSong } from '../utils/songUtils';
 import { CoverImage } from './CoverImage';
+import { registerBackHandler } from '../utils/navigationManager';
 
 const DISCOVERY_TTL_MS = 15 * 60 * 1000;
 
@@ -58,6 +59,15 @@ export const DiscoveryView: React.FC<{ active?: boolean }> = ({ active = true })
 
   // 歌手分类二级视图状态（对齐网易云：华语默认 area=7，全部类型 type=-1）
   const [showAllArtists, setShowAllArtists] = useState<boolean>(false);
+
+  // 注册屏幕边缘向右滑或全局返回动作拦截
+  useEffect(() => {
+    if (!showAllArtists) return;
+    return registerBackHandler(() => {
+      setShowAllArtists(false);
+      return true;
+    });
+  }, [showAllArtists]);
   const [artistArea, setArtistArea] = useState<number>(7);
   const [artistType, setArtistType] = useState<number>(-1);
   const [fullArtists, setFullArtists] = useState<any[]>([]);
