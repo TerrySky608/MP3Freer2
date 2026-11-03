@@ -31,20 +31,25 @@ export const DynamicIsland: React.FC = () => {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // 监听耳机插拔与断开事件
+  const isPlayingRef = useRef(isPlaying);
+  isPlayingRef.current = isPlaying;
+  const togglePlayRef = useRef(togglePlay);
+  togglePlayRef.current = togglePlay;
+
+  // 监听耳机插拔与断开事件（仅挂载时初始化一次，避免因播放状态变更而反复重置计数器）
   useEffect(() => {
     const cleanup = setupHeadphoneListener({
       onDisconnect: () => {
-        if (isPlaying) {
-          togglePlay();
+        if (isPlayingRef.current) {
+          togglePlayRef.current();
         }
       },
       onConnect: () => {
-        // 可选：耳机接入
+        // 耳机接入提示已在 setupHeadphoneListener 内部派发灵动岛通知
       },
     });
     return cleanup;
-  }, [isPlaying, togglePlay]);
+  }, []);
 
   // 监听灵动岛通知广播 (islandAlert)
   useEffect(() => {
