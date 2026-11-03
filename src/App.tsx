@@ -14,6 +14,7 @@ import { ShortcutHelpModal } from './components/ShortcutHelpModal';
 import { HistoryPanel } from './components/HistoryPanel';
 import { YearlyReport } from './components/YearlyReport';
 import { MyMusicMobilePanel } from './components/MyMusicMobilePanel';
+import { DynamicIsland } from './components/DynamicIsland';
 import { useShortcuts } from './hooks/useShortcuts';
 import { isAndroid } from './utils/platform';
 import './App.css';
@@ -99,6 +100,9 @@ function MainLayout() {
 
       <div className="aurora-bg aurora-1" />
       <div className="aurora-bg aurora-2" />
+
+      {/* 顶部中央前置摄像头灵动岛交互 */}
+      <DynamicIsland />
 
       <Sidebar
         activeTab={activeTab}

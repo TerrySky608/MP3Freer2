@@ -3924,6 +3924,361 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   color: var(--text-muted);
 }
 
+/* ========================================================
+   前置摄像头灵动岛交互系统 (Dynamic Island System)
+   ======================================================== */
+.dynamic-island-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 99990;
+  animation: fadeIn 0.25s ease;
+}
+
+.dynamic-island-root {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 99995;
+  background: #000000;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  user-select: none;
+  transition: width 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+              height 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+              border-radius 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+              padding 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.2s ease,
+              box-shadow 0.3s ease;
+}
+
+/* 1. 微型药丸态 (Compact) */
+.dynamic-island-root.compact {
+  width: 176px;
+  height: 35px;
+  border-radius: 20px;
+  padding: 0 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.dynamic-island-root.compact:hover {
+  transform: translateX(-50%) scale(1.03);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.8), 0 0 12px rgba(168, 85, 247, 0.35);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.island-compact-content {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 旋转微型黑胶 */
+.island-compact-cover {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.island-compact-cover.rotating .island-vinyl-img {
+  animation: islandVinylSpin 7s linear infinite;
+}
+
+.island-vinyl-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.island-vinyl-center-hole {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #000000;
+  border: 1.5px solid rgba(255, 255, 255, 0.8);
+}
+
+@keyframes islandVinylSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.island-compact-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #f3f4f6;
+  text-align: center;
+}
+
+/* 跳跃音频律动条 */
+.island-visualizer-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2.5px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.island-visualizer-bars .bar {
+  width: 2px;
+  border-radius: 1px;
+  background: var(--primary-color);
+  transition: height 0.15s ease;
+}
+
+.island-visualizer-bars .bar-1 { height: 5px; }
+.island-visualizer-bars .bar-2 { height: 11px; background: #ec4899; }
+.island-visualizer-bars .bar-3 { height: 7px; background: #38bdf8; }
+
+.island-visualizer-bars.playing .bar-1 {
+  animation: islandBarWave 0.8s ease-in-out infinite alternate;
+}
+.island-visualizer-bars.playing .bar-2 {
+  animation: islandBarWave 0.65s ease-in-out infinite alternate 0.2s;
+}
+.island-visualizer-bars.playing .bar-3 {
+  animation: islandBarWave 0.9s ease-in-out infinite alternate 0.4s;
+}
+
+@keyframes islandBarWave {
+  0% { height: 3px; }
+  100% { height: 13px; }
+}
+
+/* 2. 临时事件通知态 (Alert) */
+.dynamic-island-root.alert {
+  width: 260px;
+  height: 38px;
+  border-radius: 20px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-color: rgba(168, 85, 247, 0.4);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8), 0 0 16px rgba(168, 85, 247, 0.4);
+}
+
+.island-alert-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.island-alert-icon {
+  font-size: 14px;
+}
+
+.island-alert-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f3f4f6;
+  white-space: nowrap;
+}
+
+/* 3. 流体展开卡片态 (Expanded) */
+.dynamic-island-root.expanded {
+  width: min(340px, 94vw);
+  height: 148px;
+  border-radius: 26px;
+  padding: 14px 16px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.island-expanded-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  animation: fadeIn 0.25s ease;
+}
+
+.island-expanded-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.island-expanded-cover-wrap {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.island-expanded-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.island-expanded-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.island-expanded-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.island-expanded-artist {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.island-collapse-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.island-collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.island-expanded-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.island-progress-slider {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  cursor: pointer;
+}
+
+.island-progress-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.island-progress-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+.island-expanded-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+}
+
+.island-main-ctrls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.island-ctrl-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.island-ctrl-btn:hover {
+  color: #ffffff;
+  transform: scale(1.1);
+}
+
+.island-ctrl-btn.fav {
+  color: #ef4444;
+}
+
+.island-play-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #000000;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.25);
+}
+
+.island-play-btn:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 16px rgba(255, 255, 255, 0.4);
+}
+
+.island-play-btn:active {
+  transform: scale(0.95);
+}
+
+
 
 
 
