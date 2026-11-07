@@ -11,8 +11,15 @@ async function universalFetch(url: string, options?: any) {
   }
 }
 
-import { getEnabledApiEndpoints, getProxyUrl, AudioQuality, getQualityBr } from '../settings';
+import { getEnabledApiEndpoints, getProxyUrl, AudioQuality, getQualityBr, MUSIC_SOURCES } from '../settings';
 import { lxSourceEngine } from './lxSourceAdapter';
+import { isSameSong } from '../utils/songUtils';
+
+export interface FallbackSongResult {
+  fallbackSong: OnlineSong;
+  playUrl: string;
+  sourceName: string;
+}
 
 export interface OnlineSong {
   id: string;
@@ -720,6 +727,83 @@ export const MusicApiService = {
     }
 
     return candidateUrls;
+  },
+
+  /**
+   * 跨平台智能语义兜底解析：
+   * 当原音源平台（例如网易云）下架或直链失效时，自动根据歌名+歌手在其他可用平台（酷狗、酷我、QQ、咪咕等）中检索，
+   * 结合语义匹配置信度验证找到最匹配的版本，并尝试解析出可用播放直链。
+   */
+  async resolveCrossPlatformFallback(
+    song: { id: string; originalId?: string; name: string; artist: string; source: string; album?: string },
+    quality: AudioQuality | string = 'high'
+  ): Promise<FallbackSongResult | null> {
+    if (!song.name || song.name === '未知歌曲') return null;
+
+    // 候选平台排除当前原平台，并按可用率与资源丰富度排序：酷我、酷狗最全，QQ、网易云、咪咕随后
+    const priorityOrder = ['kuwo', 'kugou', 'tencent', 'netease', 'migu'];
+    const otherSources = MUSIC_SOURCES
+      .filter(s => s.id !== song.source)
+      .sort((a, b) => {
+        const idxA = priorityOrder.indexOf(a.id);
+        const idxB = priorityOrder.indexOf(b.id);
+        return (idxA >= 0 ? idxA : 99) - (idxB >= 0 ? idxB : 99);
+      });
+
+    const artistClean = (!song.artist || song.artist === '未知歌手') ? '' : song.artist.trim();
+    const searchKeyword = artistClean ? `${artistClean} ${song.name}`.trim() : song.name.trim();
+
+    for (const targetSource of otherSources) {
+      try {
+        console.log(`[CrossFallback] 尝试在【${targetSource.name}】全网检索: ${searchKeyword}`);
+        const candidates = await this.searchSongs(searchKeyword, targetSource.id, 1);
+        if (!candidates || candidates.length === 0) continue;
+
+        // 在前 6 条搜索结果中，使用 isSameSong 进行高置信度语义匹配
+        const matched = candidates.slice(0, 6).find(c => {
+          if (isSameSong(
+            { id: c.id, name: c.name, artist: c.artist, source: c.source },
+            { id: song.id, originalId: song.originalId, name: song.name, artist: song.artist, source: song.source }
+          )) {
+            return true;
+          }
+          // 容错兜底：歌名一致且歌手包含
+          const origNameClean = song.name.toLowerCase().replace(/[\s()（）\[\]【】{}《》「」『』·•・\-_~]/g, '');
+          const candNameClean = c.name.toLowerCase().replace(/[\s()（）\[\]【】{}《》「」『』·•・\-_~]/g, '');
+          if (origNameClean && candNameClean && origNameClean === candNameClean) {
+            if (!artistClean) return true;
+            const candArtistClean = (c.artist || '').toLowerCase();
+            const origArtistClean = artistClean.toLowerCase();
+            if (candArtistClean.includes(origArtistClean) || origArtistClean.includes(candArtistClean)) {
+              return true;
+            }
+          }
+          return false;
+        });
+
+        if (!matched) continue;
+
+        // 尝试获取该候选匹配歌曲的直链
+        const playUrl = await this.getSongUrl(matched.id, matched.source, quality, {
+          name: matched.name,
+          singer: matched.artist,
+          artist: matched.artist,
+        });
+
+        if (playUrl) {
+          console.log(`[CrossFallback] 成功在【${targetSource.name}】匹配到可用播放直链:`, matched.name, matched.artist);
+          return {
+            fallbackSong: matched,
+            playUrl,
+            sourceName: targetSource.name,
+          };
+        }
+      } catch (err) {
+        console.warn(`[CrossFallback] 平台 ${targetSource.name} 检索或直链解析异常:`, err);
+      }
+    }
+
+    return null;
   },
 
   async getSongLyric(

@@ -184,6 +184,48 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
   const [lyricOffset, setLyricOffset] = useState<number>(0);
   const [showTranslation, setShowTranslation] = useState<boolean>(() => storage.getString(StorageKeys.SHOW_TRANSLATION) !== 'false');
+
+  const persistFavorites = (updater: (songs: Song[]) => Song[]) => {
+    setFavoriteSongs(prev => {
+      const updated = deduplicateSongs(updater(prev));
+      storage.setJSON(
+        StorageKeys.FAVORITE_SONGS,
+        updated.map(s => (s.isLocal ? s : stripEphemeralStreamUrl(s))),
+      );
+      return updated;
+    });
+  };
+
+  /**
+   * 歌曲音源自愈机制：
+   * 当歌曲在播放或重试过程中因失效切换到新音源后，
+   * 自动同步更新播放列表、当前歌曲、播放历史及收藏夹（若已收藏），
+   * 使得后续再次点播时直接秒开有效音源，无需重复走兜底搜索。
+   */
+  const healSongInStorageAndState = (oldSong: Song, newSong: Song) => {
+    // 1. 同步更新播放列表中的歌曲项
+    setPlaylist(prev => prev.map(s => (isSameSong(s, oldSong) ? { ...newSong, url: s.url } : s)));
+
+    // 2. 同步更新当前正在播放的歌曲引用
+    setCurrentSong(prev => (prev && isSameSong(prev, oldSong) ? { ...newSong, url: prev.url } : prev));
+
+    // 3. 同步更新播放历史
+    setPlayHistory(prev =>
+      prev.map(entry => (isSameSong(entry.song, oldSong) ? { ...entry, song: newSong } : entry))
+    );
+
+    // 4. 若已被收藏，无感更新收藏夹，使收藏列表实现自愈持久化
+    persistFavorites(prev => {
+      const idx = prev.findIndex(item => isSameSong(item, oldSong));
+      if (idx < 0) return prev;
+      const updated = [...prev];
+      updated[idx] = {
+        ...stripEphemeralStreamUrl(newSong),
+        url: newSong.isLocal ? (newSong.localPath || newSong.url || null) : null,
+      };
+      return updated;
+    });
+  };
   // 缓存当前歌曲的结构化歌词数据（原文+翻译+罗马音），供偏移/翻译切换时重建
   const rawLyricDataRef = useRef<{ original: string; translated: string; romanized: string }>({ original: '', translated: '', romanized: '' });
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -745,26 +787,53 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       setIsLoading(!song.isLocal);
       let playUrl: string | null = null;
+      let activeSong: Song = song;
 
       // 1. 优先解析音频直链，确保最快速度喂给 audio 播放，绝不被歌词/封面阻塞
-      if (song.isLocal) {
-        const localPath = song.localPath || song.url || '';
+      if (activeSong.isLocal) {
+        const localPath = activeSong.localPath || activeSong.url || '';
         if (isTauri && localPath && await exists(localPath)) {
           playUrl = convertFileSrc(localPath);
         } else {
-          toast.error(`本地歌曲文件不存在，无法播放：\n${localPath || song.name}`);
+          toast.error(`本地歌曲文件不存在，无法播放：\n${localPath || activeSong.name}`);
           playUrl = null;
         }
       } else {
-        playUrl = await resolveOnlinePlayUrl(song, { allowExpiredFallback: true });
+        playUrl = await resolveOnlinePlayUrl(activeSong, { allowExpiredFallback: true });
       }
 
       if (currentSession !== playSessionIdRef.current) {
         return; // 用户已切换到其他歌曲，丢弃本次结果（suppress 由新会话接管）
       }
 
+      // 跨平台自动兜底检测：若原音源无法解析直链，且非本地歌曲，自动启动全网跨平台智能搜索与匹配
+      if (!playUrl && !activeSong.isLocal) {
+        console.log(`[CrossFallback] 原音源(${activeSong.source})直链为空，尝试全网跨平台自动兜底: ${activeSong.artist} - ${activeSong.name}`);
+        toast.info(`原音源暂时失效，正在全网搜索可用音源...`);
+        const fallback = await MusicApiService.resolveCrossPlatformFallback(activeSong, getPreferredQuality());
+
+        if (currentSession !== playSessionIdRef.current) return;
+
+        if (fallback) {
+          const { fallbackSong, playUrl: fallbackUrl, sourceName } = fallback;
+          toast.success(`原音源已失效，已自动为您切换至【${sourceName}】播放`);
+          playUrl = fallbackUrl;
+          const healedSong: Song = {
+            ...activeSong,
+            id: `online_${fallbackSong.source}_${fallbackSong.id}`,
+            originalId: fallbackSong.id,
+            source: fallbackSong.source,
+            pic: fallbackSong.pic || activeSong.pic,
+            pic_id: fallbackSong.pic_id,
+            lyric_id: fallbackSong.lyric_id,
+          };
+          healSongInStorageAndState(activeSong, healedSong);
+          activeSong = healedSong;
+        }
+      }
+
       if (!playUrl) {
-        toast.error(`获取歌曲播放链接失败！即将自动跳过...\n\n歌曲：${song.name}\n该歌曲可能为 VIP 专享或接口无响应，请稍后重试。`);
+        toast.error(`全网各音源平台均无法获取播放链接，即将自动跳过...\n\n歌曲：${activeSong.name}\n该歌曲可能为全网 VIP 或无版权，请稍后重试。`);
         playIntentRef.current = false;
         isPlayingRef.current = false;
         playbackActions.setIsPlaying(false);
@@ -776,22 +845,22 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // 2. 歌词与封面并行非阻塞加载（后台处理，绝不阻塞音频起播）
       void (async () => {
         try {
-          let lyricText = song.lyric || '';
-          let picUrl = song.pic;
+          let lyricText = activeSong.lyric || '';
+          let picUrl = activeSong.pic;
 
-          if (song.isLocal) {
-            const localData = await loadLocalSongData({ ...song, localPath: song.localPath || song.url || '' });
+          if (activeSong.isLocal) {
+            const localData = await loadLocalSongData({ ...activeSong, localPath: activeSong.localPath || activeSong.url || '' });
             if (!lyricText) lyricText = localData.lyricText;
             if (!picUrl) picUrl = localData.picUrl;
           } else {
-            const lyricPromise = (!lyricText && (song.lyric_id || song.name))
-              ? MusicApiService.getSongLyric(song.lyric_id || '', song.source, { name: song.name, singer: song.artist }).catch(() => null)
+            const lyricPromise = (!lyricText && (activeSong.lyric_id || activeSong.name))
+              ? MusicApiService.getSongLyric(activeSong.lyric_id || '', activeSong.source, { name: activeSong.name, singer: activeSong.artist }).catch(() => null)
               : Promise.resolve(null);
 
-            const picPromise = (!picUrl && song.pic_id)
-              ? (resourceCache.getPic(song.source, song.pic_id)
-                  ? Promise.resolve(resourceCache.getPic(song.source, song.pic_id))
-                  : MusicApiService.getSongPic(song.pic_id, song.source, '300', { name: song.name, singer: song.artist }).catch(() => null))
+            const picPromise = (!picUrl && activeSong.pic_id)
+              ? (resourceCache.getPic(activeSong.source, activeSong.pic_id)
+                  ? Promise.resolve(resourceCache.getPic(activeSong.source, activeSong.pic_id))
+                  : MusicApiService.getSongPic(activeSong.pic_id, activeSong.source, '300', { name: activeSong.name, singer: activeSong.artist }).catch(() => null))
               : Promise.resolve(picUrl || null);
 
             const [lrcData, fetchedPic] = await Promise.all([lyricPromise, picPromise]);
@@ -801,7 +870,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             }
             if (fetchedPic) {
               picUrl = fetchedPic;
-              if (song.pic_id) resourceCache.setPic(song.source, song.pic_id, fetchedPic);
+              if (activeSong.pic_id) resourceCache.setPic(activeSong.source, activeSong.pic_id, fetchedPic);
             }
           }
 
@@ -815,8 +884,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
 
           const updatedSong = {
-            ...song,
-            url: song.isLocal ? (song.localPath || playUrl) : playUrl,
+            ...activeSong,
+            url: activeSong.isLocal ? (activeSong.localPath || playUrl) : playUrl,
             lyric: lyricText,
             pic: resolveImageUrl(picUrl) || picUrl || null,
           };
@@ -848,7 +917,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (startedPlayback) return;
         startedPlayback = true;
 
-        recordPlay(song);
+        recordPlay(activeSong);
 
         if (!playIntentRef.current) {
           releasePauseSuppress();
@@ -902,15 +971,15 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const onError = () => {
         if (currentSession !== playSessionIdRef.current) return;
         void (async () => {
-          if (!song.isLocal) {
+          if (!activeSong.isLocal) {
             try {
-              const apiId = resolveOnlineApiId(song);
+              const apiId = resolveOnlineApiId(activeSong);
               const quality = getPreferredQuality();
               if (candidateUrls.length === 0) {
-                candidateUrls = await MusicApiService.getSongUrlCandidates(apiId, song.source, quality, {
-                  name: song.name,
-                  singer: song.artist,
-                  artist: song.artist,
+                candidateUrls = await MusicApiService.getSongUrlCandidates(apiId, activeSong.source, quality, {
+                  name: activeSong.name,
+                  singer: activeSong.artist,
+                  artist: activeSong.artist,
                 });
               }
 
@@ -918,8 +987,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               while (candidateIndex < candidateUrls.length) {
                 const nextUrl = candidateUrls[candidateIndex];
                 if (nextUrl && nextUrl !== audio.src) {
-                  console.log(`[Failover] 自动切换至备选音源 #${candidateIndex + 1}`);
-                  resourceCache.setUrl(song.source, apiId, quality, nextUrl);
+                  console.log(`[Failover] 自动切换至同平台备选音源 #${candidateIndex + 1}`);
+                  resourceCache.setUrl(activeSong.source, apiId, quality, nextUrl);
                   startedPlayback = false;
                   audio.removeAttribute('src');
                   audio.src = nextUrl;
@@ -928,15 +997,40 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 }
                 candidateIndex++;
               }
+
+              // 同平台所有备选直链均失败，启动跨平台自动搜索兜底
+              console.log(`[Failover] 同平台候选直链全部失败，启动跨源自动兜底: ${activeSong.artist} - ${activeSong.name}`);
+              const fallback = await MusicApiService.resolveCrossPlatformFallback(activeSong, quality);
+              if (currentSession !== playSessionIdRef.current) return;
+              if (fallback) {
+                const { fallbackSong, playUrl: fallbackUrl, sourceName } = fallback;
+                toast.success(`原音源播放受阻，已为您自动切换至【${sourceName}】继续播放`);
+                const healedSong: Song = {
+                  ...activeSong,
+                  id: `online_${fallbackSong.source}_${fallbackSong.id}`,
+                  originalId: fallbackSong.id,
+                  source: fallbackSong.source,
+                  pic: fallbackSong.pic || activeSong.pic,
+                  pic_id: fallbackSong.pic_id,
+                  lyric_id: fallbackSong.lyric_id,
+                };
+                healSongInStorageAndState(activeSong, healedSong);
+                activeSong = healedSong;
+                startedPlayback = false;
+                audio.removeAttribute('src');
+                audio.src = fallbackUrl;
+                audio.load();
+                return;
+              }
             } catch (err) {
               console.warn('Failover audio retry failed:', err);
             }
           }
           console.error('Audio playback error:', audio.error);
-          if (song.isLocal) {
-            toast.error(`本地音频加载失败，即将跳过：\n${song.localPath || song.name}`);
+          if (activeSong.isLocal) {
+            toast.error(`本地音频加载失败，即将跳过：\n${activeSong.localPath || activeSong.name}`);
           } else {
-            toast.error(`音频流加载失败(Error Code: ${audio.error?.code})，已尝试全部备选音源，即将自动跳过下一首。`);
+            toast.error(`音频流加载失败(Error Code: ${audio.error?.code})，已尝试全网所有备选音源，即将自动跳过下一首。`);
           }
           playIntentRef.current = false;
           isPlayingRef.current = false;
@@ -1401,17 +1495,6 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const newFavs = isFav ? prev.filter(a => a.id !== artistInfo.id) : [...prev, artistInfo];
       storage.setJSON(StorageKeys.FAVORITE_ARTISTS, newFavs);
       return newFavs;
-    });
-  };
-
-  const persistFavorites = (updater: (songs: Song[]) => Song[]) => {
-    setFavoriteSongs(prev => {
-      const updated = deduplicateSongs(updater(prev));
-      storage.setJSON(
-        StorageKeys.FAVORITE_SONGS,
-        updated.map(s => (s.isLocal ? s : stripEphemeralStreamUrl(s))),
-      );
-      return updated;
     });
   };
 
