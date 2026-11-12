@@ -528,9 +528,11 @@ export const FavoritePanel: React.FC = () => {
               background: '#1e1e24',
               border: '1px solid rgba(255, 255, 255, 0.15)',
               borderRadius: 14,
-              padding: 24,
+              padding: 20,
               maxWidth: 420,
               width: '100%',
+              boxSizing: 'border-box',
+              overflow: 'hidden',
               boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5)',
             }}
             onClick={e => e.stopPropagation()}
@@ -553,20 +555,24 @@ export const FavoritePanel: React.FC = () => {
               暗号规则：<code>SKY-字母+三位数字</code>（如 <code>SKY-A128</code>）。多台设备（手机、车机、电脑）只需输入<strong>完全相同的暗号</strong>即可双向互通，不同用户使用独立暗号避免串台。
             </p>
 
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 10, width: '100%', boxSizing: 'border-box' }}>
               <input
                 type="text"
                 value={tempCode}
                 onChange={e => setTempCode(e.target.value)}
-                placeholder="例如: SKY-A128 或 SKY-0608"
+                placeholder="如: SKY-R608"
                 style={{
-                  flex: 1,
+                  flex: '1 1 110px',
+                  minWidth: 0,
+                  width: 0,
+                  height: 36,
+                  boxSizing: 'border-box',
                   background: 'rgba(0,0,0,0.3)',
                   border: '1px solid rgba(255,255,255,0.2)',
                   borderRadius: 8,
-                  padding: '8px 12px',
+                  padding: '0 10px',
                   color: '#fff',
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: 600,
                   outline: 'none',
                 }}
@@ -579,7 +585,8 @@ export const FavoritePanel: React.FC = () => {
                 onClick={() => setTempCode(generateRandomSyncCode())}
                 title="按规则随机生成新暗号"
                 style={{
-                  padding: '0 10px',
+                  height: 36,
+                  padding: '0 8px',
                   fontSize: 12,
                   background: 'rgba(168, 85, 247, 0.15)',
                   color: '#c084fc',
@@ -587,6 +594,7 @@ export const FavoritePanel: React.FC = () => {
                   borderRadius: 8,
                   cursor: 'pointer',
                   whiteSpace: 'nowrap',
+                  flexShrink: 0,
                 }}
               >
                 随机换一个
@@ -594,9 +602,10 @@ export const FavoritePanel: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setTempCode(DEFAULT_SYNC_CODE)}
-                title="填入常用预设暗号 SKY-0608"
+                title="填入常用预设暗号 SKY-R608"
                 style={{
-                  padding: '0 10px',
+                  height: 36,
+                  padding: '0 8px',
                   fontSize: 12,
                   background: 'rgba(255,255,255,0.08)',
                   color: 'var(--text-muted)',
@@ -604,9 +613,10 @@ export const FavoritePanel: React.FC = () => {
                   borderRadius: 8,
                   cursor: 'pointer',
                   whiteSpace: 'nowrap',
+                  flexShrink: 0,
                 }}
               >
-                填 SKY-0608
+                SKY-R608
               </button>
             </div>
 

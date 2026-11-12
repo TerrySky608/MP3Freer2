@@ -266,7 +266,7 @@ export const AboutPanel: React.FC = () => {
                     type="text"
                     value={inputCode}
                     onChange={e => setInputCode(e.target.value)}
-                    placeholder="输入暗号，如 SKY-0608"
+                    placeholder="输入暗号，如 SKY-R608"
                     style={{
                       padding: '6px 10px',
                       borderRadius: 6,
@@ -327,7 +327,7 @@ export const AboutPanel: React.FC = () => {
                       cursor: 'pointer',
                     }}
                   >
-                    填 SKY-0608
+                    SKY-R608
                   </button>
                 </div>
 

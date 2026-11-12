@@ -26,7 +26,7 @@ export function generateRandomSyncCode(): string {
   return `SKY-${randomLetter}${randomNum}`;
 }
 
-export const DEFAULT_SYNC_CODE = 'SKY-0608';
+export const DEFAULT_SYNC_CODE = 'SKY-R608';
 /** 默认基于 Vercel 代理 → Cloudflare KV 的永久云端同步中继网关（国内直连，永久存储） */
 export const DEFAULT_KV_RELAY_URL = 'https://music.terrysky.fun/cloudsync';
 const DEVICE_ID_KEY = 'mp3tao_device_id';
@@ -146,7 +146,7 @@ export function setLastSyncTime(time: number): void {
 /** 将暗号转换为安全的网络路径标识（保留连字符与下划线，使用户在浏览器直连时与暗号字面完全对齐） */
 function getSafeSyncPath(syncCode: string): string {
   const safe = (syncCode || '').replace(/[^a-zA-Z0-9_-]/g, '');
-  return `mp3tao_sync_${safe || 'SKY-0608'}`;
+  return `mp3tao_sync_${safe || 'SKY-R608'}`;
 }
 
 /** 纯净化收藏歌曲：剥离临时流地址及大段歌词文本，大幅缩减体积并加速同步与持久化 */

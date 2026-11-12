@@ -161,6 +161,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // 避免闭包捕获陈旧的 isPlaying（loadSongDetails 的 race 修复）。
   const isPlayingRef = useRef<boolean>(false);
   const lastSavedProgressRef = useRef<number>(0);
+  const reloadResumeRef = useRef<boolean | null>(null);
   const [playMode, setPlayMode] = useState<PlayMode>('list-loop');
   const [volume, setVolume] = useState<number>(() => {
     const saved = storage.getString(StorageKeys.VOLUME);
@@ -384,6 +385,22 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     };
 
+    const onBeforeUnload = () => {
+      try {
+        if (audio.src && !Number.isNaN(audio.currentTime) && audio.currentTime > 0) {
+          storage.setString(StorageKeys.LAST_PLAY_POSITION, audio.currentTime.toFixed(1));
+          if (audio.duration && !Number.isNaN(audio.duration) && audio.duration > 0) {
+            storage.setString(StorageKeys.LAST_PLAY_DURATION, audio.duration.toFixed(1));
+          }
+        }
+        if (isPlayingRef.current || playIntentRef.current || !audio.paused) {
+          sessionStorage.setItem('mp3freer_reload_was_playing', '1');
+        } else {
+          sessionStorage.removeItem('mp3freer_reload_was_playing');
+        }
+      } catch (_) {}
+    };
+
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('durationchange', onDurationChange);
     audio.addEventListener('ended', onEnded);
@@ -392,6 +409,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     audio.addEventListener('error', onError);
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', onBeforeUnload);
     }
 
     const savedLocal = storage.getString(StorageKeys.LOCAL_SONGS);
@@ -472,6 +492,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', onVisibilityChange);
       }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('beforeunload', onBeforeUnload);
+      }
       audio.pause();
       if (autoSkipTimerRef.current) clearTimeout(autoSkipTimerRef.current);
       clearTimeout(startupAutoSyncTimer);
@@ -484,9 +507,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!currentSong) return;
     const audio = audioRef.current;
 
+    // 1. 静默预载歌词（与音频预载并行，避免歌词网络耗时阻塞重载续播）
     void (async () => {
       try {
-        // 1. 静默预载歌词
         let lyricText = currentSong.lyric || '';
         if (!lyricText && !currentSong.isLocal) {
           const lrcData = await MusicApiService.getSongLyric(currentSong.lyric_id || '', currentSong.source, {
@@ -508,8 +531,25 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             : { original: lyricText, translated: '', romanized: '' };
           setLyrics(parseLrcWithExtras(rawForLyrics.original, rawForLyrics.translated, rawForLyrics.romanized, 0));
         }
+      } catch (err) {
+        console.warn('Silent initial lyric preload warning:', err);
+      }
+    })();
 
-        // 2. 静默预载音频直链与断点（保持 paused）
+    // 2. 静默预载音频直链与断点（若来自页面意外重载前的播放态，则自动断点续播）
+    void (async () => {
+      try {
+        if (reloadResumeRef.current === null && typeof sessionStorage !== 'undefined') {
+          try {
+            reloadResumeRef.current = sessionStorage.getItem('mp3freer_reload_was_playing') === '1';
+            sessionStorage.removeItem('mp3freer_reload_was_playing');
+          } catch (_) {
+            reloadResumeRef.current = false;
+          }
+        }
+        const shouldResumeReload = Boolean(reloadResumeRef.current);
+        reloadResumeRef.current = false;
+
         if (audio && !audio.src && !isPlayingRef.current) {
           let preUrl = null;
           if (currentSong.isLocal) {
@@ -522,23 +562,41 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
 
           if (preUrl && audioRef.current && !audioRef.current.src && !isPlayingRef.current) {
-            audioRef.current.src = preUrl;
+            const targetAudio = audioRef.current;
+            targetAudio.src = preUrl;
             const savedPos = lastSavedProgressRef.current || parseFloat(storage.getString(StorageKeys.LAST_PLAY_POSITION) || '0');
-            if (savedPos > 0) {
+            const applyPositionAndResume = () => {
+              if (savedPos > 0) {
+                try {
+                  targetAudio.currentTime = savedPos;
+                } catch (_) {}
+              }
+              if (shouldResumeReload) {
+                playIntentRef.current = true;
+                isPlayingRef.current = true;
+                playbackActions.setIsPlaying(true);
+                targetAudio.play().catch(err => {
+                  console.warn('Auto-resume playback after reload blocked:', err);
+                  playIntentRef.current = false;
+                  isPlayingRef.current = false;
+                  playbackActions.setIsPlaying(false);
+                });
+              }
+            };
+
+            if (targetAudio.readyState >= 1) {
+              applyPositionAndResume();
+            } else {
               const onMeta = () => {
-                if (audioRef.current) {
-                  audioRef.current.removeEventListener('loadedmetadata', onMeta);
-                  try {
-                    audioRef.current.currentTime = savedPos;
-                  } catch (_) {}
-                }
+                targetAudio.removeEventListener('loadedmetadata', onMeta);
+                applyPositionAndResume();
               };
-              audio.addEventListener('loadedmetadata', onMeta);
+              targetAudio.addEventListener('loadedmetadata', onMeta);
             }
           }
         }
       } catch (err) {
-        console.warn('Silent initial preload warning:', err);
+        console.warn('Silent initial audio preload warning:', err);
       }
     })();
   }, []);

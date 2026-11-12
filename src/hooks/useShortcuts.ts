@@ -34,6 +34,17 @@ export function useShortcuts({
     if (!player) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+
+      // 拦截 F5 / Ctrl+R / Meta+R 硬刷新：防止桌面 WebView2 整页重载导致正在播放的歌曲中断、队列重建
+      if (key === 'f5' || ((e.ctrlKey || e.metaKey) && !e.altKey && key === 'r')) {
+        e.preventDefault();
+        if (!e.repeat) {
+          window.dispatchEvent(new CustomEvent('app-soft-refresh'));
+        }
+        return;
+      }
+
       // 忽略在输入框或可编辑区域的按键，避免冲突
       if (
         document.activeElement &&
@@ -45,7 +56,6 @@ export function useShortcuts({
       }
 
       const hasModifiers = e.ctrlKey || e.metaKey || e.altKey || e.shiftKey;
-      const key = e.key.toLowerCase();
 
       switch (key) {
         case ' ': // Space

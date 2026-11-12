@@ -267,6 +267,16 @@ export const RecommendPanel: React.FC<{ active?: boolean }> = ({ active = true }
     void loadRecommendData(false);
   }, [active, loadRecommendData]);
 
+  // 响应 F5 / Ctrl+R 应用内软刷新：仅刷新推荐数据，绝不打断正在播放的歌曲与播放列表
+  useEffect(() => {
+    const handleSoftRefresh = () => {
+      void loadRecommendData(true);
+      toast.info('已刷新界面数据，当前播放保持不中断');
+    };
+    window.addEventListener('app-soft-refresh', handleSoftRefresh);
+    return () => window.removeEventListener('app-soft-refresh', handleSoftRefresh);
+  }, [loadRecommendData, toast]);
+
   // 当用户首次产生听歌记录且原先没有相似歌曲时自动刷新一次
   useEffect(() => {
     if (activeSeedSong && activeSeedSong.id !== lastSeedIdRef.current) {
