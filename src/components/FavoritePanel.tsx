@@ -2,6 +2,7 @@ import React, { useState, useRef, useMemo } from 'react';
 import { Heart, Play, Plus, Music, ArrowUp, Download, Upload, RefreshCw, Key, Edit3, X, ArrowUpCircle, ArrowDownCircle, Search } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { CoverImage } from './CoverImage';
+import { SongDownloadButton } from './SongDownloadButton';
 import { MUSIC_SOURCES } from '../settings';
 import { DEFAULT_SYNC_CODE, generateRandomSyncCode } from '../services/syncService';
 import { isSameSong } from '../utils/songUtils';
@@ -416,6 +417,7 @@ export const FavoritePanel: React.FC = () => {
                         >
                           <Plus size={14} />
                         </button>
+                        <SongDownloadButton song={song} />
                         <button
                           className="song-row-action-btn active"
                           onClick={() => void toggleFavorite(song)}

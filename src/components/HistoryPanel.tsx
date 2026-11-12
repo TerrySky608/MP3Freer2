@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Play, Plus, Trash2, ArrowUp, Flame, Clock, ListPlus, Heart } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import type { Song } from '../types/music';
+import { SongDownloadButton } from './SongDownloadButton';
 import { MUSIC_SOURCES } from '../settings';
 import { isSameSong } from '../utils/songUtils';
 
@@ -210,6 +211,7 @@ export const HistoryPanel: React.FC = () => {
           >
             <Plus size={14} />
           </button>
+          <SongDownloadButton song={song} />
           <button
             className={`song-row-action-btn ${isFav ? 'active' : ''}`}
             onClick={() => void toggleFavorite(song)}

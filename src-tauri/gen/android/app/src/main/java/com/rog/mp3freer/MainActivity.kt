@@ -528,6 +528,25 @@ class MainActivity : TauriActivity() {
     }
 
     @JavascriptInterface
+    fun getDefaultDownloadDir(): String {
+      return try {
+        val extMusic = getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC)
+        if (extMusic != null) {
+          val dir = java.io.File(extMusic, "MP3Terry")
+          if (!dir.exists()) dir.mkdirs()
+          if (dir.exists() && dir.canWrite()) {
+            return dir.absolutePath
+          }
+        }
+        val internalDir = java.io.File(filesDir, "MP3Terry_Downloads")
+        if (!internalDir.exists()) internalDir.mkdirs()
+        internalDir.absolutePath
+      } catch (_: Throwable) {
+        ""
+      }
+    }
+
+    @JavascriptInterface
     fun exitApp() {
       mainHandler.post {
         finishAffinity()

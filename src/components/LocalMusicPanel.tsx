@@ -57,7 +57,7 @@ export const LocalMusicPanel: React.FC = () => {
             <div>
               <h2 style={{ margin: 0, fontSize: 18 }}>本地歌曲</h2>
               <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4, marginBottom: 0 }}>
-                导入本地文件夹下的 MP3/FLAC 音乐文件，随时离线播放。
+                自动识别默认或设置的下载目录中的 MP3/FLAC 音乐文件，也可手动选择本地文件夹。
               </p>
             </div>
           </div>
@@ -116,7 +116,9 @@ export const LocalMusicPanel: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 }}>
             <span 
               style={{ fontSize: 12, color: 'var(--primary-color)', cursor: 'pointer', textDecoration: 'underline', maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              onClick={() => openPath(localDirectory)}
+              onClick={() => {
+                openPath(localDirectory).catch(err => console.warn('openPath unsupported or failed:', err));
+              }}
               title="在文件资源管理器中打开"
             >
               {localDirectory}

@@ -2,13 +2,28 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState 
 import { convertFileSrc } from '@tauri-apps/api/core';
 const isTauri = typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ !== undefined;
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { exists, readDir, readTextFile, writeFile } from '@tauri-apps/plugin-fs';
+import { exists, readTextFile } from '@tauri-apps/plugin-fs';
 import { emit } from '@tauri-apps/api/event';
 import md5 from 'js-md5';
 import { MusicApiService } from '../services/musicApi';
-import { getDefaultSearchSource, getDownloadOnFavorite, getDownloadPath, getPreferredQuality, getPreloadNextSong } from '../settings';
+import {
+  getCustomDownloadPath,
+  getDefaultSearchSource,
+  getDownloadOnFavorite,
+  getPreferredQuality,
+  getPreloadNextSong,
+  resolveDefaultDownloadDir,
+  resolveEffectiveDownloadPath,
+} from '../settings';
 import { resolveImageUrl } from '../services/musicApi';
-import { readAudioMetadata, downloadFile } from '../services/rustBridge';
+import {
+  readAudioMetadata,
+  downloadFile,
+  ensureDirectory,
+  checkFileExists,
+  listAudioFilesInDir,
+  saveTextFile,
+} from '../services/rustBridge';
 import { useToast } from './ToastContext';
 import { storage, StorageKeys } from '../services/storage';
 import { resourceCache } from '../services/cache';
@@ -23,11 +38,11 @@ import {
 } from '../utils/mediaSession';
 import { parseLrcWithExtras } from '../utils/lyricParser';
 import {
+  AUDIO_EXTENSIONS,
   sanitizeFileName,
   joinPath,
   withoutExtension,
   parseSongName,
-  directoryExists,
   isAudioFile,
   resolveOnlineApiId,
   normalizePersistedSong,
@@ -94,6 +109,12 @@ interface PlayerContextType {
   removeFromPlaylist: (songId: string) => void;
   clearPlaylist: () => void;
   toggleFavorite: (song: Song) => Promise<void>;
+  /** 下载单首歌曲（支持同平台多链接重试及跨平台自动换源兜底） */
+  downloadSong: (song: Song) => Promise<void>;
+  /** 判断歌曲是否正在下载队列中 */
+  isDownloadingSong: (song: Song) => boolean;
+  /** 判断歌曲是否已在本地歌曲中 */
+  isSongDownloaded: (song: Song) => boolean;
   importLocalDirectory: () => Promise<void>;
   loadLocalSongLyric: (song: Song) => Promise<string>;
   playAll: (songs: Song[]) => void;
@@ -176,6 +197,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [currentLyricIndex, setCurrentLyricIndex] = useState<number>(-1);
   const [localSongs, setLocalSongs] = useState<Song[]>([]);
+  const [downloadingSongs, setDownloadingSongs] = useState<Song[]>([]);
   const [favoriteSongs, setFavoriteSongs] = useState<Song[]>([]);
   const [favoritePlaylists, setFavoritePlaylists] = useState<FavoritePlaylist[]>(() => storage.getJSON<FavoritePlaylist[]>(StorageKeys.FAVORITE_PLAYLISTS, []));
   const [favoriteArtists, setFavoriteArtists] = useState<FavoriteArtist[]>(() => storage.getJSON<FavoriteArtist[]>(StorageKeys.FAVORITE_ARTISTS, []));
@@ -554,7 +576,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           let preUrl = null;
           if (currentSong.isLocal) {
             const localPath = currentSong.localPath || currentSong.url || '';
-            if (isTauri && localPath && await exists(localPath)) {
+            const existsLocally = isTauri && localPath
+              ? (await checkFileExists(localPath).catch(() => exists(localPath)))
+              : false;
+            if (existsLocally) {
               preUrl = convertFileSrc(localPath);
             }
           } else {
@@ -850,7 +875,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // 1. 优先解析音频直链，确保最快速度喂给 audio 播放，绝不被歌词/封面阻塞
       if (activeSong.isLocal) {
         const localPath = activeSong.localPath || activeSong.url || '';
-        if (isTauri && localPath && await exists(localPath)) {
+        const existsLocally = isTauri && localPath
+          ? (await checkFileExists(localPath).catch(() => exists(localPath)))
+          : false;
+        if (existsLocally) {
           playUrl = convertFileSrc(localPath);
         } else {
           toast.error(`本地歌曲文件不存在，无法播放：\n${localPath || activeSong.name}`);
@@ -1567,6 +1595,231 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   };
 
+  const isDownloadingSong = (song: Song) => downloadingSongs.some(s => isSameSong(s, song));
+
+  const isSongDownloaded = (song: Song) =>
+    Boolean(song.isLocal || localSongs.some(ls => isSameSong(ls, song)));
+
+  /** 尝试通过 URL 列表逐条下载，直到有一次成功并返回实际文件路径 */
+  const tryDownloadFromUrls = async (
+    urls: string[],
+    baseDestPath: string,
+    onProgress?: (percent: number) => void,
+  ): Promise<{ filePath: string; usedUrl: string } | null> => {
+    for (const url of urls) {
+      if (!url) continue;
+      try {
+        const savedPath = await downloadFile(url, baseDestPath, onProgress);
+        if (savedPath) {
+          return { filePath: savedPath, usedUrl: url };
+        }
+      } catch (err) {
+        console.warn('[Download] 候选链接下载失败，尝试下一候选:', url, err);
+      }
+    }
+    return null;
+  };
+
+  /**
+   * 核心在线歌曲下载引擎（供歌曲列表下载按钮与“收藏自动下载”共用）：
+   * 1. 自动识别有效下载目录（自定义设置优先，否则平台默认路径）且目录不存在时自动创建；
+   * 2. 同平台多候选链接重试；
+   * 3. 全部失效时自动全网跨平台语义兜底匹配可用音源下载；
+   * 4. 顺带保存同名 .lrc 歌词并即时更新“本地歌曲”列表。
+   */
+  const downloadOnlineSongInternal = async (
+    song: Song,
+    options: { silent?: boolean; cancelCheck?: () => boolean } = {},
+  ): Promise<{ filePath: string; song: Song } | null> => {
+    if (!isTauri) {
+      if (!options.silent) toast.warning('当前浏览器预览环境不支持直接写入本地文件，请使用桌面版或安卓版');
+      return null;
+    }
+
+    if (song.isLocal && song.localPath) {
+      const existsAlready = await checkFileExists(song.localPath).catch(() => false);
+      if (existsAlready) {
+        if (!options.silent) toast.info(`该歌曲已在本地目录：\n${song.localPath}`);
+        return { filePath: song.localPath, song };
+      }
+    }
+
+    const downloadDir = await resolveEffectiveDownloadPath();
+    if (!downloadDir) {
+      if (!options.silent) toast.error('无法解析有效下载路径，请先到设置中手动配置下载路径');
+      return null;
+    }
+
+    try {
+      await ensureDirectory(downloadDir);
+    } catch (err: any) {
+      if (!options.silent) {
+        toast.error(`无法创建下载目录（${downloadDir}）：${err?.message || err}`);
+      }
+      return null;
+    }
+
+    const baseName = sanitizeFileName(`${song.artist || '未知歌手'} - ${song.name}`);
+    const baseDestPath = joinPath(downloadDir, `${baseName}.mp3`);
+
+    // 若目标目录中已存在同名任一音频格式文件，直接复用并加入本地列表，避免重复流量
+    for (const ext of AUDIO_EXTENSIONS) {
+      const candidateExistingPath = joinPath(downloadDir, `${baseName}${ext}`);
+      const alreadyExists = await checkFileExists(candidateExistingPath).catch(() => false);
+      if (alreadyExists) {
+        const localEntry = await buildSongFromEntry(downloadDir, `${baseName}${ext}`);
+        if (localEntry) {
+          setLocalSongs(prev => {
+            const filtered = prev.filter(s => s.localPath !== localEntry.localPath);
+            const updated = [localEntry, ...filtered];
+            storage.setJSON(StorageKeys.LOCAL_SONGS, updated);
+            return updated;
+          });
+        }
+        if (!options.silent) {
+          toast.info(`歌曲已存在，无需重复下载：\n${candidateExistingPath}`);
+        }
+        return { filePath: candidateExistingPath, song };
+      }
+    }
+
+    const quality = getPreferredQuality();
+    const apiId = resolveOnlineApiId(song);
+    let activeSong: Song = song;
+    let savedFilePath = '';
+
+    // 1. 尝试原平台缓存 + 全节点候选链接
+    const cachedUrl = resourceCache.getUrl(song.source, apiId, quality);
+    const platformUrls = await MusicApiService.getSongUrlCandidates(apiId, song.source, quality, {
+      name: song.name,
+      singer: song.artist,
+      artist: song.artist,
+    });
+    const allPrimaryUrls = Array.from(
+      new Set([cachedUrl, ...platformUrls].filter((u): u is string => Boolean(u))),
+    );
+
+    const primaryRes = await tryDownloadFromUrls(allPrimaryUrls, baseDestPath, (percent) => {
+      console.log(`[下载] ${song.artist} - ${song.name}: ${percent.toFixed(0)}%`);
+    });
+
+    if (options.cancelCheck?.()) return null;
+
+    if (primaryRes) {
+      savedFilePath = primaryRes.filePath;
+      resourceCache.setUrl(song.source, apiId, quality, primaryRes.usedUrl);
+    } else {
+      // 2. 原平台所有候选直链失败 -> 跨平台自动检索与兜底换源下载（与播放逻辑对齐）
+      if (!options.silent) {
+        toast.info(`原音源下载失败，正在全网切换可用音源：${song.name}`);
+      }
+      const fallback = await MusicApiService.resolveCrossPlatformFallback(song, quality);
+      if (options.cancelCheck?.()) return null;
+
+      if (fallback) {
+        const { fallbackSong, playUrl: fallbackUrl, sourceName } = fallback;
+        const extraFallbackUrls = await MusicApiService.getSongUrlCandidates(
+          fallbackSong.id,
+          fallbackSong.source,
+          quality,
+          { name: fallbackSong.name, singer: fallbackSong.artist, artist: fallbackSong.artist },
+        );
+        const allFallbackUrls = Array.from(
+          new Set([fallbackUrl, ...extraFallbackUrls].filter((u): u is string => Boolean(u))),
+        );
+        const fallbackRes = await tryDownloadFromUrls(allFallbackUrls, baseDestPath, (percent) => {
+          console.log(`[换源下载:${sourceName}] ${song.artist} - ${song.name}: ${percent.toFixed(0)}%`);
+        });
+
+        if (options.cancelCheck?.()) return null;
+
+        if (fallbackRes) {
+          savedFilePath = fallbackRes.filePath;
+          const healedSong: Song = {
+            ...song,
+            id: `online_${fallbackSong.source}_${fallbackSong.id}`,
+            originalId: fallbackSong.id,
+            source: fallbackSong.source,
+            pic: fallbackSong.pic || song.pic,
+            pic_id: fallbackSong.pic_id,
+            lyric_id: fallbackSong.lyric_id,
+          };
+          healSongInStorageAndState(song, healedSong);
+          activeSong = healedSong;
+          if (!options.silent) {
+            toast.success(`原音源失效，已自动切换【${sourceName}】完成下载：\n${savedFilePath}`);
+          }
+        }
+      }
+    }
+
+    if (!savedFilePath) {
+      if (!options.silent) {
+        toast.error(`全网各音源均无法下载，请稍后重试：\n${song.artist} - ${song.name}`);
+      }
+      return null;
+    }
+
+    // 3. 静默下载并保存同名 .lrc 歌词文件
+    try {
+      const lrcPath = `${withoutExtension(savedFilePath)}.lrc`;
+      const lrcExists = await checkFileExists(lrcPath).catch(() => false);
+      if (!lrcExists) {
+        let lyricText = activeSong.lyric || '';
+        if (!lyricText && (activeSong.lyric_id || activeSong.name)) {
+          lyricText = (
+            await MusicApiService.getSongLyric(activeSong.lyric_id || '', activeSong.source, {
+              name: activeSong.name,
+              singer: activeSong.artist,
+            })
+          ).original;
+        }
+        if (lyricText) {
+          await saveTextFile(lrcPath, lyricText);
+        }
+      }
+    } catch (lrcErr) {
+      console.warn('[Download] 歌词保存失败(不影响音频):', lrcErr);
+    }
+
+    // 4. 实时将刚下载的歌曲写入“本地歌曲”列表，开箱即可在本地播放
+    const slashIdx = Math.max(savedFilePath.lastIndexOf('\\'), savedFilePath.lastIndexOf('/'));
+    const actualDir = slashIdx > 0 ? savedFilePath.slice(0, slashIdx) : downloadDir;
+    const actualFileName = slashIdx > 0 ? savedFilePath.slice(slashIdx + 1) : `${baseName}.mp3`;
+    const localEntry = await buildSongFromEntry(actualDir, actualFileName);
+    if (localEntry) {
+      setLocalSongs(prev => {
+        const filtered = prev.filter(s => s.localPath !== localEntry.localPath);
+        const updated = [localEntry, ...filtered];
+        storage.setJSON(StorageKeys.LOCAL_SONGS, updated);
+        return updated;
+      });
+      if (!localDirectory) {
+        setLocalDirectory(actualDir);
+      }
+    }
+
+    if (!options.silent && activeSong === song) {
+      toast.success(`下载完成：${song.artist} - ${song.name}\n已保存至 ${savedFilePath}`);
+    }
+
+    return { filePath: savedFilePath, song: activeSong };
+  };
+
+  /** 对外暴露的单曲下载操作（带防重入队列状态，供各歌曲列表下载按钮调用） */
+  const downloadSong = async (song: Song) => {
+    if (downloadingSongs.some(s => isSameSong(s, song))) {
+      toast.info(`正在下载中：${song.name}`);
+      return;
+    }
+    setDownloadingSongs(prev => [...prev, song]);
+    try {
+      await downloadOnlineSongInternal(song, { silent: false });
+    } finally {
+      setDownloadingSongs(prev => prev.filter(s => !isSameSong(s, song)));
+    }
+  };
+
   const toggleFavorite = async (song: Song) => {
     const existsInFavorites = favoriteSongs.some(s => isSameSong(s, song));
     if (existsInFavorites) {
@@ -1588,57 +1841,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     upsertFavorite(songToSave);
 
     if (!song.isLocal && getDownloadOnFavorite()) {
-      const downloadPath = getDownloadPath();
-      if (isTauri && !(await directoryExists(downloadPath))) {
-        toast.error(`收藏下载目录不存在，请先到设置中重新选择：\n${downloadPath}`);
-        return;
-      }
-
       try {
-        const fileName = sanitizeFileName(`${songToSave.artist} - ${songToSave.name}.mp3`);
-        const filePath = joinPath(downloadPath, fileName);
-        const lrcFileName = sanitizeFileName(`${songToSave.artist} - ${songToSave.name}.lrc`);
-        const lrcPath = joinPath(downloadPath, lrcFileName);
-
-        if (isTauri && !(await exists(filePath))) {
-          const apiId = resolveOnlineApiId(song);
-          let downloadUrl = resourceCache.getUrl(song.source, apiId, getPreferredQuality());
-          if (!downloadUrl) {
-            downloadUrl = await MusicApiService.getSongUrl(apiId, song.source, getPreferredQuality());
-            if (downloadUrl) resourceCache.setUrl(song.source, apiId, getPreferredQuality(), downloadUrl);
-          }
-          if (!downloadUrl) {
-            downloadUrl = resourceCache.getUrl(song.source, apiId, getPreferredQuality(), true);
-          }
-
-          if (!downloadUrl) {
-            toast.warning(`未能获取歌曲下载地址，已收藏但无法下载：${song.artist} - ${song.name}`);
-            return;
-          }
-
-          await downloadFile(downloadUrl, filePath, (percent) => {
-            console.log(`[下载] ${song.artist} - ${song.name}: ${percent.toFixed(0)}%`);
-          });
-        }
-
-        if (favoriteDownloadTokenRef.current.get(song.id) !== downloadToken) return;
-
-        let lyricText = songToSave.lyric || '';
-        if (!lyricText && songToSave.lyric_id) {
-          lyricText = (await MusicApiService.getSongLyric(songToSave.lyric_id, songToSave.source)).original;
-        }
-        if (isTauri && lyricText && !(await exists(lrcPath))) {
-          await writeFile(lrcPath, new TextEncoder().encode(lyricText));
-        }
-
-        if (favoriteDownloadTokenRef.current.get(song.id) !== downloadToken) return;
+        const result = await downloadOnlineSongInternal(song, {
+          silent: true,
+          cancelCheck: () => favoriteDownloadTokenRef.current.get(song.id) !== downloadToken,
+        });
+        if (!result || favoriteDownloadTokenRef.current.get(song.id) !== downloadToken) return;
 
         songToSave = {
           ...songToSave,
           id: song.id,
-          url: filePath,
+          url: result.filePath,
           isLocal: true,
-          localPath: filePath,
+          localPath: result.filePath,
         };
         delete songToSave.lyric;
         upsertFavorite(songToSave);
@@ -1698,7 +1913,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const lyricText = (await MusicApiService.getSongLyric(matched.lyric_id, matched.source)).original;
       if (!lyricText) return { lyricText: '', picUrl: fetchedPic };
 
-      await writeFile(sameNameLrcPath, new TextEncoder().encode(lyricText));
+      await saveTextFile(sameNameLrcPath, lyricText);
       return { lyricText, picUrl: fetchedPic };
     } catch (err) {
       console.warn('Failed to search or save online data for local song:', song.name, err);
@@ -1750,6 +1965,86 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   };
 
+  const scanLocalDirectories = async (dirs: string[], mode: 'merge' | 'replace' = 'replace') => {
+    if (!isTauri || dirs.length === 0) return;
+    try {
+      const audioFiles: Song[] = [];
+      const seenPaths = new Set<string>();
+
+      for (const dir of dirs) {
+        if (!dir) continue;
+        try {
+          const fileNames = await listAudioFilesInDir(dir);
+          for (const fileName of fileNames) {
+            const song = await buildSongFromEntry(dir, fileName);
+            if (song?.localPath && !seenPaths.has(song.localPath)) {
+              seenPaths.add(song.localPath);
+              audioFiles.push(song);
+            }
+          }
+        } catch (err) {
+          console.warn('Failed to scan local folder:', dir, err);
+        }
+      }
+
+      setLocalSongs(prev => {
+        if (mode === 'replace') {
+          storage.setJSON(StorageKeys.LOCAL_SONGS, audioFiles);
+          return audioFiles;
+        }
+        const existingPaths = new Set(prev.map(s => s.localPath));
+        const filteredNew = audioFiles.filter(s => !existingPaths.has(s.localPath));
+        const merged = [...prev, ...filteredNew];
+        storage.setJSON(StorageKeys.LOCAL_SONGS, merged);
+        return merged;
+      });
+    } catch (err) {
+      console.error('Failed to scan local directories:', err);
+    }
+  };
+
+  /**
+   * 决定当前本地歌曲应识别的主目录：
+   * 若设置中有手动配置下载路径，则本地歌曲使用该设置路径；
+   * 否则自动识别当前平台默认下载路径（若目录不存在则自动创建），并兼顾用户曾手动导入的文件夹。
+   */
+  const syncEffectiveLocalDirectory = async () => {
+    if (!isTauri) return;
+    const customDownloadDir = getCustomDownloadPath();
+    if (customDownloadDir) {
+      await ensureDirectory(customDownloadDir).catch(() => {});
+      setLocalDirectory(customDownloadDir);
+      await scanLocalDirectories([customDownloadDir], 'replace');
+      return;
+    }
+
+    const defaultDownloadDir = await resolveDefaultDownloadDir();
+    const manualLocalDir = storage.getString(StorageKeys.LOCAL_DIRECTORY) || '';
+    const dirsToScan = Array.from(new Set([defaultDownloadDir, manualLocalDir].filter(Boolean)));
+    if (dirsToScan.length === 0) return;
+
+    if (defaultDownloadDir) {
+      await ensureDirectory(defaultDownloadDir).catch(() => {});
+    }
+    setLocalDirectory(manualLocalDir || defaultDownloadDir || null);
+    await scanLocalDirectories(dirsToScan, 'replace');
+  };
+
+  // 启动时 & 设置页修改下载路径时：自动识别默认下载路径或自定义下载路径并扫描本地歌曲
+  useEffect(() => {
+    if (!isTauri) return;
+    void syncEffectiveLocalDirectory();
+
+    const handleDownloadPathChange = () => {
+      void syncEffectiveLocalDirectory();
+    };
+    window.addEventListener('downloadPathChanged', handleDownloadPathChange);
+    return () => {
+      window.removeEventListener('downloadPathChanged', handleDownloadPathChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const importLocalDirectory = async () => {
     try {
       const selected = await openDialog({
@@ -1760,35 +2055,29 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       if (!selected || Array.isArray(selected)) return;
 
-      const entries = await readDir(selected);
-      const audioFiles: Song[] = [];
-
-      for (const entry of entries) {
-        if (!entry.isFile) continue;
-        const song = await buildSongFromEntry(selected, entry.name);
-        if (song) audioFiles.push(song);
-      }
-
-      if (audioFiles.length > 0 || selected) {
-        setLocalDirectory(selected);
-        storage.setString(StorageKeys.LOCAL_DIRECTORY, selected);
-      }
-
-      setLocalSongs(prev => {
-        const existingPaths = new Set(prev.map(s => s.localPath));
-        const filteredNew = audioFiles.filter(s => !existingPaths.has(s.localPath));
-        const merged = [...prev, ...filteredNew];
-        storage.setJSON(StorageKeys.LOCAL_SONGS, merged);
-        return merged;
-      });
+      setLocalDirectory(selected);
+      storage.setString(StorageKeys.LOCAL_DIRECTORY, selected);
+      await scanLocalDirectories([selected], 'merge');
     } catch (err) {
       console.error('Failed to import local folder:', err);
     }
   };
 
   const refreshLocalDirectory = async () => {
-    // 聚合：当前目录 + 已导入歌曲涉及的所有父目录（支持多目录 import 后刷新不丢）
+    if (!isTauri) return;
+    const customDownloadDir = getCustomDownloadPath();
+    if (customDownloadDir) {
+      // 设置中指定了下载路径时，本地歌曲严格同步该设置的路径
+      await ensureDirectory(customDownloadDir).catch(() => {});
+      setLocalDirectory(customDownloadDir);
+      await scanLocalDirectories([customDownloadDir], 'replace');
+      return;
+    }
+
+    // 聚合：默认下载目录 + 当前展示目录 + 已导入歌曲涉及的父目录
     const dirs = new Set<string>();
+    const defaultDir = await resolveDefaultDownloadDir();
+    if (defaultDir) dirs.add(defaultDir);
     if (localDirectory) dirs.add(localDirectory);
     for (const s of localSongs) {
       const path = s.localPath;
@@ -1798,31 +2087,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     if (dirs.size === 0) return;
 
-    try {
-      const audioFiles: Song[] = [];
-      const seenPaths = new Set<string>();
-
-      for (const dir of dirs) {
-        try {
-          const entries = await readDir(dir);
-          for (const entry of entries) {
-            if (!entry.isFile) continue;
-            const song = await buildSongFromEntry(dir, entry.name);
-            if (song?.localPath && !seenPaths.has(song.localPath)) {
-              seenPaths.add(song.localPath);
-              audioFiles.push(song);
-            }
-          }
-        } catch (err) {
-          console.warn('Failed to refresh local folder:', dir, err);
-        }
-      }
-
-      setLocalSongs(audioFiles);
-      storage.setJSON(StorageKeys.LOCAL_SONGS, audioFiles);
-    } catch (err) {
-      console.error('Failed to refresh local folders:', err);
-    }
+    await scanLocalDirectories(Array.from(dirs), 'replace');
   };
 
   const [syncCode, setSyncCodeState] = useState<string>(() => getSyncCode());
@@ -2089,6 +2354,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       playAll,
       addAllToPlaylist,
       toggleFavorite,
+      downloadSong,
+      isDownloadingSong,
+      isSongDownloaded,
       importLocalDirectory,
       loadLocalSongLyric,
       localDirectory,

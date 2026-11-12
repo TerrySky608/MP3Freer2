@@ -1,8 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { AlertCircle, Disc, Cloud, Download, Upload, RefreshCw, Sparkles, Key, Server, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import { AlertCircle, Disc, Cloud, Download, Upload, RefreshCw, Sparkles, Key, Server, ArrowUpCircle, ArrowDownCircle, FolderOpen, RotateCcw } from 'lucide-react';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import {
   API_ENDPOINT_INFOS,
   APP_VERSION,
+  getCustomDownloadPath,
   getDefaultSearchSource,
   getEnabledApiEndpoints,
   getPreferredQuality,
@@ -11,14 +13,19 @@ import {
   MusicSource,
   QUALITY_OPTIONS,
   AudioQuality,
+  resolveDefaultDownloadDir,
   setDefaultSearchSource,
+  setDownloadPath,
   setEnabledApiEndpoints,
   setPreferredQuality,
   setPreloadNextSong,
 } from '../settings';
 import { usePlayer } from '../context/PlayerContext';
+import { useToast } from '../context/ToastContext';
 import { resourceCache } from '../services/cache';
+import { ensureDirectory } from '../services/rustBridge';
 import { getSyncServerUrl, setSyncServerUrl, DEFAULT_SYNC_CODE, generateRandomSyncCode } from '../services/syncService';
+import { isAndroid } from '../utils/platform';
 
 export const AboutPanel: React.FC = () => {
   const {
@@ -38,6 +45,10 @@ export const AboutPanel: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [inputCode, setInputCode] = useState(syncCode);
   const [serverUrl, setServerUrlState] = useState(() => getSyncServerUrl());
+  const [customDownloadPath, setCustomDownloadPathState] = useState<string>(() => getCustomDownloadPath());
+  const [defaultDownloadPath, setDefaultDownloadPath] = useState<string>('');
+  const [downloadPathInput, setDownloadPathInput] = useState<string>(() => getCustomDownloadPath());
+  const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -52,7 +63,54 @@ export const AboutPanel: React.FC = () => {
     setPreferredQualityState(getPreferredQuality());
     setEnabledEndpointsState(getEnabledApiEndpoints());
     setPreloadNextSongState(getPreloadNextSong());
+
+    void resolveDefaultDownloadDir().then(defDir => {
+      setDefaultDownloadPath(defDir);
+      if (!getCustomDownloadPath() && defDir) {
+        setDownloadPathInput(defDir);
+      }
+    });
   }, []);
+
+  const handleSaveCustomDownloadPath = async (rawPath: string) => {
+    const clean = rawPath.trim();
+    if (!clean) {
+      handleResetDefaultDownloadPath();
+      return;
+    }
+    try {
+      if ((window as any).__TAURI_INTERNALS__) {
+        await ensureDirectory(clean);
+      }
+      setDownloadPath(clean);
+      setCustomDownloadPathState(clean);
+      setDownloadPathInput(clean);
+      toast.success(`下载路径已保存（本地歌曲将同步识别该路径）：\n${clean}`);
+    } catch (err: any) {
+      toast.error(`设置下载路径失败（无法创建或访问该目录）：\n${err?.message || err}`);
+    }
+  };
+
+  const handleChooseDownloadDir = async () => {
+    try {
+      const selected = await openDialog({
+        directory: true,
+        multiple: false,
+        title: '选择默认歌曲下载文件夹',
+      });
+      if (!selected || Array.isArray(selected)) return;
+      await handleSaveCustomDownloadPath(selected);
+    } catch (err: any) {
+      toast.warning(`当前系统不支持目录选择弹窗，请直接在输入框中填写路径：${err?.message || ''}`);
+    }
+  };
+
+  const handleResetDefaultDownloadPath = () => {
+    setDownloadPath('');
+    setCustomDownloadPathState('');
+    setDownloadPathInput(defaultDownloadPath);
+    toast.success(`已恢复默认下载路径${defaultDownloadPath ? `：\n${defaultDownloadPath}` : ''}`);
+  };
 
   const handlePreloadToggle = (enabled: boolean) => {
     setPreloadNextSongState(enabled);
@@ -165,6 +223,90 @@ export const AboutPanel: React.FC = () => {
                   style={{ width: 18, height: 18, accentColor: '#10b981', cursor: 'pointer' }}
                 />
               </label>
+            </div>
+          </div>
+
+          <div className="setting-row" style={{ alignItems: 'flex-start' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>歌曲下载路径</span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                    background: customDownloadPath ? 'rgba(168, 85, 247, 0.16)' : 'rgba(16, 185, 129, 0.16)',
+                    color: customDownloadPath ? '#c084fc' : '#10b981',
+                  }}
+                >
+                  {customDownloadPath ? '已自定义' : '系统默认'}
+                </span>
+              </div>
+              <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
+                下载的歌曲与 .lrc 歌词将保存到此路径（路径不存在时自动创建）；“本地歌曲”也会优先自动扫描并识别该目录。
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  value={downloadPathInput}
+                  onChange={e => setDownloadPathInput(e.target.value)}
+                  placeholder={defaultDownloadPath || '输入自定义下载文件夹路径'}
+                  style={{
+                    flex: '1 1 220px',
+                    minWidth: 0,
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    background: 'rgba(255,255,255,0.06)',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    color: 'var(--text-main)',
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    outline: 'none',
+                  }}
+                />
+                {!isAndroid() && (
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    onClick={() => void handleChooseDownloadDir()}
+                    style={{ height: 32, padding: '0 12px', fontSize: 12, borderRadius: 6, gap: 5 }}
+                  >
+                    <FolderOpen size={13} />
+                    <span>选择目录</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="primary-btn"
+                  onClick={() => void handleSaveCustomDownloadPath(downloadPathInput)}
+                  style={{ height: 32, padding: '0 12px', fontSize: 12, borderRadius: 6, background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', boxShadow: 'none', border: '1px solid rgba(16, 185, 129, 0.3)' }}
+                >
+                  <span>保存路径</span>
+                </button>
+                {customDownloadPath && (
+                  <button
+                    type="button"
+                    onClick={handleResetDefaultDownloadPath}
+                    title={defaultDownloadPath ? `恢复为默认路径: ${defaultDownloadPath}` : '恢复默认路径'}
+                    style={{
+                      height: 32,
+                      padding: '0 10px',
+                      fontSize: 12,
+                      borderRadius: 6,
+                      background: 'rgba(255,255,255,0.06)',
+                      color: 'var(--text-muted)',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <RotateCcw size={12} />
+                    <span>恢复默认</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 

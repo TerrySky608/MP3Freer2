@@ -33,6 +33,9 @@
         "$HOME/**",
         "$DOWNLOAD/**",
         "$MUSIC/**",
+        "$AUDIO/**",
+        "$APPDATA/**",
+        "$APPLOCALDATA/**",
         "$DESKTOP/**",
         "$DOCUMENT/**"
       ]

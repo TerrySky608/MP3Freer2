@@ -2854,8 +2854,8 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   .song-row-action-btn {
-    width: 34px !important;
-    height: 34px !important;
+    width: 30px !important;
+    height: 30px !important;
     padding: 0 !important;
     display: flex;
     align-items: center;
@@ -3912,17 +3912,27 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   margin-top: 4px;
 }
 
-/* 歌手列表容器 */
+/* 歌手列表容器（桌面/宽屏默认 2 列，窄屏/手机自适应 1 列） */
 .artist-list-container {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+  row-gap: 2px;
+}
+
+@media (max-width: 640px) {
+  .artist-list-container {
+    grid-template-columns: 1fr;
+    column-gap: 0;
+  }
 }
 
 /* 歌手单行 */
 .artist-list-row {
   display: flex;
   align-items: center;
-  padding: 10px 4px;
+  min-width: 0;
+  padding: 10px 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   cursor: pointer;
   transition: background 0.15s ease;

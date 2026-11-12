@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MP3Terry",
-  "version": "26.11.12",
+  "version": "26.11.13",
   "identifier": "com.rog.mp3freer",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -47,6 +47,9 @@
           "$HOME/**",
           "$DOWNLOAD/**",
           "$MUSIC/**",
+          "$AUDIO/**",
+          "$APPDATA/**",
+          "$APPLOCALDATA/**",
           "$DESKTOP/**",
           "$DOCUMENT/**",
           "**/*.mp3",

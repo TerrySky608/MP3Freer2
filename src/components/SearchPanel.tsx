@@ -8,6 +8,7 @@ import { toPlayerSong, isSameSong } from '../utils/songUtils';
 import { ArtistBanner } from './ArtistBanner';
 import { DiscoveryView } from './DiscoveryView';
 import { CoverImage } from './CoverImage';
+import { SongDownloadButton } from './SongDownloadButton';
 import { registerBackHandler } from '../utils/navigationManager';
 
 const PAGE_SIZE = 30;
@@ -580,6 +581,7 @@ export const SearchPanel: React.FC<{ active?: boolean }> = ({ active = true }) =
               <button className="song-row-action-btn" onClick={() => addToPlaylist(playerSong)} title={TEXT.addQueue}>
                 <Plus size={14} />
               </button>
+              <SongDownloadButton song={playerSong} />
               <button
                 className={`song-row-action-btn ${isFav ? 'active' : ''}`}
                 onClick={() => void toggleFavorite(playerSong)}

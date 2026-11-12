@@ -22,6 +22,7 @@ import { toPlayerSong, isSameSong } from '../utils/songUtils';
 import { computeReportStats } from '../utils/reportStats';
 import { MUSIC_SOURCES } from '../settings';
 import { CoverImage } from './CoverImage';
+import { SongDownloadButton } from './SongDownloadButton';
 import { registerBackHandler } from '../utils/navigationManager';
 import type { Song } from '../types/music';
 
@@ -428,6 +429,7 @@ export const RecommendPanel: React.FC<{ active?: boolean }> = ({ active = true }
               <button className="song-row-action-btn" onClick={() => addToPlaylist(playerSong)} title="设作下一首播放">
                 <Plus size={14} />
               </button>
+              <SongDownloadButton song={playerSong} />
               <button
                 className={`song-row-action-btn ${isFav ? 'active' : ''}`}
                 onClick={() => void toggleFavorite(playerSong)}

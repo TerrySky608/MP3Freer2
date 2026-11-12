@@ -1,3 +1,5 @@
+import { getDefaultDownloadDir as invokeDefaultDownloadDir } from './services/rustBridge';
+
 export type MusicSource = 'netease' | 'tencent' | 'kugou' | 'kuwo' | 'migu';
 
 /**
@@ -5,7 +7,7 @@ export type MusicSource = 'netease' | 'tencent' | 'kugou' | 'kuwo' | 'migu';
  * package.json / tauri.conf.json / Cargo.toml 必须与此保持一致。
  * 显示时统一带 v 前缀。
  */
-export const APP_VERSION = '26.11.4';
+export const APP_VERSION = '26.11.13';
 
 /** 音质档位：标准 128 / 高品 320 / 无损 / Hi-Res */
 export type AudioQuality = 'standard' | 'high' | 'lossless' | 'hires';
@@ -17,7 +19,8 @@ export const QUALITY_OPTIONS: Array<{ id: AudioQuality; name: string; br: string
   { id: 'hires', name: 'Hi-Res', br: '1999' },
 ];
 
-export const DEFAULT_DOWNLOAD_PATH = 'C:\\Users\\Public\\Downloads';
+export const DEFAULT_DOWNLOAD_PATH = '';
+const LEGACY_PUBLIC_DOWNLOAD_PATH = 'C:\\Users\\Public\\Downloads';
 export const DOWNLOAD_PATH_KEY = 'mp3freer_download_path';
 export const DEFAULT_SEARCH_SOURCE_KEY = 'mp3freer_default_search_source';
 export const DEFAULT_SEARCH_SOURCE: MusicSource = 'netease';
@@ -73,13 +76,84 @@ export const MUSIC_SOURCES: Array<{ id: MusicSource; name: string }> = [
   { id: 'tencent', name: 'QQ' },
 ];
 
+let cachedPlatformDefaultDownloadDir: string | null = null;
+let resolvingDefaultDirPromise: Promise<string> | null = null;
+
+/** 获取用户手动设置的自定义下载路径；未设置时返回空字符串 */
+export function getCustomDownloadPath(): string {
+  if (typeof window === 'undefined') return '';
+  const savedPath = (localStorage.getItem(DOWNLOAD_PATH_KEY) || '').trim();
+  // 兼容旧版硬编码公共路径：旧版本仅保存了默认占位符且未真正手动配置时，按未设置处理以迁移至平台默认下载目录
+  if (!savedPath || savedPath === LEGACY_PUBLIC_DOWNLOAD_PATH) {
+    return '';
+  }
+  return savedPath;
+}
+
+/** 异步解析当前平台默认下载目录（Android 优先原生外部音乐目录，桌面端走 Rust download_dir\MP3Terry） */
+export async function resolveDefaultDownloadDir(): Promise<string> {
+  if (cachedPlatformDefaultDownloadDir) {
+    return cachedPlatformDefaultDownloadDir;
+  }
+  if (resolvingDefaultDirPromise) {
+    return resolvingDefaultDirPromise;
+  }
+
+  resolvingDefaultDirPromise = (async () => {
+    try {
+      const bridge = typeof window !== 'undefined' ? (window as any).AndroidMediaBridge : undefined;
+      if (bridge && typeof bridge.getDefaultDownloadDir === 'function') {
+        const androidDir = String(bridge.getDefaultDownloadDir() || '').trim();
+        if (androidDir) {
+          cachedPlatformDefaultDownloadDir = androidDir;
+          return androidDir;
+        }
+      }
+      if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+        const rustDir = (await invokeDefaultDownloadDir()).trim();
+        if (rustDir) {
+          cachedPlatformDefaultDownloadDir = rustDir;
+          return rustDir;
+        }
+      }
+    } catch (err) {
+      console.warn('Resolve default download directory failed:', err);
+    } finally {
+      resolvingDefaultDirPromise = null;
+    }
+    return '';
+  })();
+
+  return resolvingDefaultDirPromise;
+}
+
+/** 获取当前已缓存的默认下载路径（未初始化前可能为空） */
+export function getCachedDefaultDownloadPath(): string {
+  return cachedPlatformDefaultDownloadDir || '';
+}
+
+/** 异步解析当前实际生效的下载目录（优先用户在设置中配置的路径，否则返回平台默认下载目录） */
+export async function resolveEffectiveDownloadPath(): Promise<string> {
+  const custom = getCustomDownloadPath();
+  if (custom) return custom;
+  return await resolveDefaultDownloadDir();
+}
+
+/** 同步获取当前生效的下载路径（仅作界面显示/缓存读取，下载与扫描请优先调用 resolveEffectiveDownloadPath） */
 export function getDownloadPath(): string {
-  const savedPath = localStorage.getItem(DOWNLOAD_PATH_KEY);
-  return savedPath || DEFAULT_DOWNLOAD_PATH;
+  return getCustomDownloadPath() || getCachedDefaultDownloadPath();
 }
 
 export function setDownloadPath(path: string) {
-  localStorage.setItem(DOWNLOAD_PATH_KEY, path);
+  const clean = (path || '').trim();
+  if (clean) {
+    localStorage.setItem(DOWNLOAD_PATH_KEY, clean);
+  } else {
+    localStorage.removeItem(DOWNLOAD_PATH_KEY);
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('downloadPathChanged', { detail: clean }));
+  }
 }
 
 export function getDefaultSearchSource(): MusicSource {

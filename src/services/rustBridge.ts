@@ -23,29 +23,52 @@ export async function readAudioMetadata(filePath: string): Promise<AudioMetadata
 /**
  * 带进度回调的文件下载（Rust 端执行，不阻塞 UI 线程）
  * @param url 下载地址
- * @param destPath 本地保存路径
+ * @param destPath 本地目标路径
  * @param onProgress 进度回调 (0~100)
+ * @returns 实际写入的本地文件路径（自动匹配正确音频扩展名）
  */
 export async function downloadFile(
   url: string,
   destPath: string,
   onProgress?: (percent: number) => void,
-): Promise<void> {
-  const channel = onProgress
-    ? new Channel<number>()
-    : undefined;
-
-  if (channel && onProgress) {
+): Promise<string> {
+  const channel = new Channel<number>();
+  if (onProgress) {
     channel.onmessage = (percent) => {
       onProgress(percent as number);
     };
   }
 
-  return invoke('download_file', {
+  return invoke<string>('download_file', {
     url,
     destPath,
     onProgress: channel,
   });
+}
+
+/** 获取当前平台默认下载目录（桌面端为用户 Downloads\MP3Terry，Android 为免权限外部音乐/下载目录；不存在自动创建） */
+export async function getDefaultDownloadDir(): Promise<string> {
+  return invoke<string>('get_default_download_dir');
+}
+
+/** 确保目标目录存在（不存在自动递归创建） */
+export async function ensureDirectory(dirPath: string): Promise<string> {
+  return invoke<string>('ensure_directory', { dirPath });
+}
+
+/** 检查本地文件是否存在（兼容自定义磁盘路径与 Android 目录） */
+export async function checkFileExists(filePath: string): Promise<boolean> {
+  return invoke<boolean>('file_exists', { filePath });
+}
+
+/** 列出指定目录中支持的音频文件名列表 */
+export async function listAudioFilesInDir(dirPath: string): Promise<string[]> {
+  return invoke<string[]>('list_audio_files_in_dir', { dirPath });
+}
+
+/** 保存纯文本文件（用于同步写入 .lrc 歌词到任意下载路径） */
+export async function saveTextFile(filePath: string, content: string): Promise<void> {
+  return invoke('save_text_file', { filePath, content });
 }
 
 /**

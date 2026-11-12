@@ -44,6 +44,11 @@ pub fn run() {
             .invoke_handler(tauri::generate_handler![
                 commands::read_audio_metadata,
                 commands::download_file,
+                commands::get_default_download_dir,
+                commands::ensure_directory,
+                commands::file_exists,
+                commands::list_audio_files_in_dir,
+                commands::save_text_file,
                 commands::toggle_lyric_overlay,
                 commands::set_lyric_overlay_lock,
                 commands::toggle_lyric_overlay_lock,
@@ -94,6 +99,11 @@ pub fn run() {
             .invoke_handler(tauri::generate_handler![
                 commands::read_audio_metadata,
                 commands::download_file,
+                commands::get_default_download_dir,
+                commands::ensure_directory,
+                commands::file_exists,
+                commands::list_audio_files_in_dir,
+                commands::save_text_file,
                 commands::toggle_lyric_overlay,
                 commands::set_lyric_overlay_lock,
                 commands::toggle_lyric_overlay_lock,
