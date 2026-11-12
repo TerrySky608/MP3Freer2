@@ -253,6 +253,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const rawLyricDataRef = useRef<{ original: string; translated: string; romanized: string }>({ original: '', translated: '', romanized: '' });
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentSongRef = useRef<Song | null>(null);
+  const localSongsRef = useRef<Song[]>(localSongs);
   const playModeRef = useRef<PlayMode>(playMode);
   const playlistRef = useRef<Song[]>(playlist);
   const playHistoryRef = useRef<HistoryEntry[]>(playHistory);
@@ -318,6 +319,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     playIndexRef.current = playIndex;
   }, [playIndex]);
+
+  useEffect(() => {
+    localSongsRef.current = localSongs;
+  }, [localSongs]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -573,16 +578,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         reloadResumeRef.current = false;
 
         if (audio && !audio.src && !isPlayingRef.current) {
-          let preUrl = null;
-          if (currentSong.isLocal) {
-            const localPath = currentSong.localPath || currentSong.url || '';
-            const existsLocally = isTauri && localPath
-              ? (await checkFileExists(localPath).catch(() => exists(localPath)))
-              : false;
-            if (existsLocally) {
-              preUrl = convertFileSrc(localPath);
-            }
-          } else {
+          let preUrl: string | null = null;
+          const matchedLocalPath = await resolveExistingLocalAudioFile(currentSong);
+          if (matchedLocalPath) {
+            preUrl = convertFileSrc(matchedLocalPath);
+          } else if (!currentSong.isLocal) {
             preUrl = await resolveOnlinePlayUrl(currentSong, { allowExpiredFallback: true });
           }
 
@@ -700,7 +700,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       : (currentIndex + 1) % pl.length;
 
     const nextSong = pl[targetIdx];
-    if (!nextSong || nextSong.isLocal) {
+    const matchedLocalPath = nextSong ? await resolveExistingLocalAudioFile(nextSong) : null;
+    if (!nextSong || nextSong.isLocal || matchedLocalPath) {
       if (preloadAudioRef.current) {
         try {
           preloadAudioRef.current.removeAttribute('src');
@@ -793,6 +794,51 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }, 2000);
   };
 
+  const verifyLocalFileExists = async (filePath?: string | null): Promise<string | null> => {
+    if (!isTauri || !filePath) return null;
+    const found = await checkFileExists(filePath).catch(() => exists(filePath).catch(() => false));
+    return found ? filePath : null;
+  };
+
+  /**
+   * 优先解析歌曲是否已有可用本地音频文件（适用于本地歌曲与已下载过的在线歌曲）：
+   * 1. 先校验歌曲自身 localPath（或 isLocal 下的 url）；
+   * 2. 再在已扫描 localSongs 中按歌名+歌手匹配对应本地文件；
+   * 3. 兜底按标准下载命名（歌手 - 歌名 + 音频后缀）在有效下载目录探测。
+   */
+  const resolveExistingLocalAudioFile = async (song: Song): Promise<string | null> => {
+    if (!isTauri) return null;
+
+    const directPath = song.localPath || (song.isLocal ? song.url : null);
+    if (await verifyLocalFileExists(directPath)) {
+      return directPath!;
+    }
+
+    const matchedLocal = localSongsRef.current.find(ls => isSameSong(ls, song));
+    if (matchedLocal) {
+      const matchedPath = matchedLocal.localPath || matchedLocal.url;
+      if (await verifyLocalFileExists(matchedPath)) {
+        return matchedPath!;
+      }
+    }
+
+    try {
+      const downloadDir = await resolveEffectiveDownloadPath();
+      if (!downloadDir) return null;
+      const baseName = sanitizeFileName(`${song.artist || '未知歌手'} - ${song.name}`);
+      for (const ext of AUDIO_EXTENSIONS) {
+        const candidatePath = joinPath(downloadDir, `${baseName}${ext}`);
+        if (await verifyLocalFileExists(candidatePath)) {
+          return candidatePath;
+        }
+      }
+    } catch {
+      // 探测失败时静默回退在线流
+    }
+
+    return null;
+  };
+
   const resolveOnlinePlayUrl = async (
     song: Song,
     options: { forceRefresh?: boolean; allowExpiredFallback?: boolean } = {},
@@ -868,22 +914,21 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
 
     try {
-      setIsLoading(!song.isLocal);
+      const matchedLocalPath = await resolveExistingLocalAudioFile(song);
+      if (currentSession !== playSessionIdRef.current) return;
+
+      let usedLocalMatch = Boolean(matchedLocalPath);
+      setIsLoading(!song.isLocal && !usedLocalMatch);
       let playUrl: string | null = null;
       let activeSong: Song = song;
 
-      // 1. 优先解析音频直链，确保最快速度喂给 audio 播放，绝不被歌词/封面阻塞
-      if (activeSong.isLocal) {
+      // 1. 优先使用本地已下载音频（零流量秒开），不存在时再解析在线音频直链
+      if (usedLocalMatch && matchedLocalPath) {
+        playUrl = convertFileSrc(matchedLocalPath);
+      } else if (activeSong.isLocal) {
         const localPath = activeSong.localPath || activeSong.url || '';
-        const existsLocally = isTauri && localPath
-          ? (await checkFileExists(localPath).catch(() => exists(localPath)))
-          : false;
-        if (existsLocally) {
-          playUrl = convertFileSrc(localPath);
-        } else {
-          toast.error(`本地歌曲文件不存在，无法播放：\n${localPath || activeSong.name}`);
-          playUrl = null;
-        }
+        toast.error(`本地歌曲文件不存在，无法播放：\n${localPath || activeSong.name}`);
+        playUrl = null;
       } else {
         playUrl = await resolveOnlinePlayUrl(activeSong, { allowExpiredFallback: true });
       }
@@ -934,11 +979,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           let lyricText = activeSong.lyric || '';
           let picUrl = activeSong.pic;
 
-          if (activeSong.isLocal) {
-            const localData = await loadLocalSongData({ ...activeSong, localPath: activeSong.localPath || activeSong.url || '' });
+          if (activeSong.isLocal || (usedLocalMatch && matchedLocalPath)) {
+            const targetLocalPath = matchedLocalPath || activeSong.localPath || activeSong.url || '';
+            const localData = await loadLocalSongData({ ...activeSong, localPath: targetLocalPath });
             if (!lyricText) lyricText = localData.lyricText;
             if (!picUrl) picUrl = localData.picUrl;
-          } else {
+          }
+
+          if (!activeSong.isLocal && (!lyricText || !picUrl)) {
             const lyricPromise = (!lyricText && (activeSong.lyric_id || activeSong.name))
               ? MusicApiService.getSongLyric(activeSong.lyric_id || '', activeSong.source, { name: activeSong.name, singer: activeSong.artist }).catch(() => null)
               : Promise.resolve(null);
@@ -971,7 +1019,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
           const updatedSong = {
             ...activeSong,
-            url: activeSong.isLocal ? (activeSong.localPath || playUrl) : playUrl,
+            url: activeSong.isLocal ? (activeSong.localPath || playUrl) : (usedLocalMatch ? activeSong.url : playUrl),
             lyric: lyricText,
             pic: resolveImageUrl(picUrl) || picUrl || null,
           };
@@ -1059,6 +1107,21 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         void (async () => {
           if (!activeSong.isLocal) {
             try {
+              // 若在线歌曲优先播放本地文件失败，自动降级回在线首选直链
+              if (usedLocalMatch) {
+                usedLocalMatch = false;
+                console.warn(`[LocalFirst] 本地文件播放失败，回退至在线音源: ${activeSong.artist} - ${activeSong.name}`);
+                const onlineUrl = await resolveOnlinePlayUrl(activeSong, { allowExpiredFallback: true });
+                if (currentSession !== playSessionIdRef.current) return;
+                if (onlineUrl && onlineUrl !== audio.src) {
+                  startedPlayback = false;
+                  audio.removeAttribute('src');
+                  audio.src = onlineUrl;
+                  audio.load();
+                  return;
+                }
+              }
+
               const apiId = resolveOnlineApiId(activeSong);
               const quality = getPreferredQuality();
               if (candidateUrls.length === 0) {
