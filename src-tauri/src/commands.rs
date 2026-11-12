@@ -210,6 +210,14 @@ pub fn save_text_file(file_path: String, content: String) -> Result<(), String> 
     std::fs::write(path, content.as_bytes()).map_err(|e| format!("写入文件失败: {}", e))
 }
 
+/// 读取文本文件（用于从任意下载/本地路径读取 .lrc 歌词，避开 WebView fs:scope 权限限制）
+#[tauri::command]
+pub fn read_text_file(file_path: String) -> Result<String, String> {
+    let bytes = std::fs::read(Path::new(&file_path))
+        .map_err(|e| format!("读取文件失败: {}", e))?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 fn detect_audio_extension(content_type: Option<&str>, url: &str, fallback_ext: &str) -> String {
     if let Some(ct) = content_type {
         let ct_lower = ct.to_lowercase();

@@ -71,6 +71,11 @@ export async function saveTextFile(filePath: string, content: string): Promise<v
   return invoke('save_text_file', { filePath, content });
 }
 
+/** 读取纯文本文件（用于从任意下载/本地路径读取 .lrc 歌词） */
+export async function readTextFileFromLocal(filePath: string): Promise<string> {
+  return invoke<string>('read_text_file', { filePath });
+}
+
 /**
  * 切换桌面悬浮歌词窗口的显示/隐藏
  * @returns 切换后是否可见

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState 
 import { convertFileSrc } from '@tauri-apps/api/core';
 const isTauri = typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ !== undefined;
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { exists, readTextFile } from '@tauri-apps/plugin-fs';
+import { exists } from '@tauri-apps/plugin-fs';
 import { emit } from '@tauri-apps/api/event';
 import md5 from 'js-md5';
 import { MusicApiService } from '../services/musicApi';
@@ -23,6 +23,7 @@ import {
   checkFileExists,
   listAudioFilesInDir,
   saveTextFile,
+  readTextFileFromLocal,
 } from '../services/rustBridge';
 import { useToast } from './ToastContext';
 import { storage, StorageKeys } from '../services/storage';
@@ -534,10 +535,16 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!currentSong) return;
     const audio = audioRef.current;
 
-    // 1. 静默预载歌词（与音频预载并行，避免歌词网络耗时阻塞重载续播）
+    // 1. 静默预载歌词（优先读取本地同名 .lrc，避免断网或重复走网络）
     void (async () => {
       try {
         let lyricText = currentSong.lyric || '';
+        if (!lyricText) {
+          const matchedLocalPath = await resolveExistingLocalAudioFile(currentSong);
+          if (matchedLocalPath) {
+            lyricText = await readLocalLrcText(matchedLocalPath);
+          }
+        }
         if (!lyricText && !currentSong.isLocal) {
           const lrcData = await MusicApiService.getSongLyric(currentSong.lyric_id || '', currentSong.source, {
             name: currentSong.name,
@@ -800,6 +807,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return found ? filePath : null;
   };
 
+  /** 从与音频同名的 .lrc 文件读取本地歌词（走 Rust 命令，支持自定义路径与 Android 公共目录） */
+  const readLocalLrcText = async (audioFilePath?: string | null): Promise<string> => {
+    if (!isTauri || !audioFilePath) return '';
+    const lrcPath = `${withoutExtension(audioFilePath)}.lrc`;
+    try {
+      const existsLrc = await verifyLocalFileExists(lrcPath);
+      if (!existsLrc) return '';
+      return await readTextFileFromLocal(lrcPath);
+    } catch {
+      return '';
+    }
+  };
+
   /**
    * 优先解析歌曲是否已有可用本地音频文件（适用于本地歌曲与已下载过的在线歌曲）：
    * 1. 先校验歌曲自身 localPath（或 isLocal 下的 url）；
@@ -898,6 +918,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (wantPlay) playIntentRef.current = true;
     
     playbackActions.reset();
+    setLyrics([]);
+    rawLyricDataRef.current = { original: '', translated: '', romanized: '' };
     if (wantPlay) {
       isPlayingRef.current = true;
       playbackActions.setIsPlaying(true);
@@ -979,14 +1001,24 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           let lyricText = activeSong.lyric || '';
           let picUrl = activeSong.pic;
 
-          if (activeSong.isLocal || (usedLocalMatch && matchedLocalPath)) {
-            const targetLocalPath = matchedLocalPath || activeSong.localPath || activeSong.url || '';
-            const localData = await loadLocalSongData({ ...activeSong, localPath: targetLocalPath });
-            if (!lyricText) lyricText = localData.lyricText;
-            if (!picUrl) picUrl = localData.picUrl;
+          const targetLocalPath = matchedLocalPath || (activeSong.isLocal ? (activeSong.localPath || activeSong.url || '') : '');
+          if (targetLocalPath && !lyricText) {
+            const localLrc = await readLocalLrcText(targetLocalPath);
+            if (currentSession !== playSessionIdRef.current) return;
+            if (localLrc) {
+              lyricText = localLrc;
+              rawLyricDataRef.current = { original: localLrc, translated: '', romanized: '' };
+              setLyrics(parseLrcWithExtras(localLrc, '', '', 0));
+            }
           }
 
-          if (!activeSong.isLocal && (!lyricText || !picUrl)) {
+          if (activeSong.isLocal) {
+            if (!lyricText || !picUrl) {
+              const localData = await loadLocalSongData({ ...activeSong, localPath: targetLocalPath });
+              if (!lyricText) lyricText = localData.lyricText;
+              if (!picUrl) picUrl = localData.picUrl;
+            }
+          } else if (!lyricText || !picUrl) {
             const lyricPromise = (!lyricText && (activeSong.lyric_id || activeSong.name))
               ? MusicApiService.getSongLyric(activeSong.lyric_id || '', activeSong.source, { name: activeSong.name, singer: activeSong.artist }).catch(() => null)
               : Promise.resolve(null);
@@ -1930,16 +1962,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const loadLocalSongData = async (song: Song): Promise<{ lyricText: string, picUrl: string | null }> => {
     const localPath = song.localPath || song.url || '';
-    if (!song.isLocal || !localPath) return { lyricText: '', picUrl: null };
+    if (!localPath) return { lyricText: '', picUrl: null };
 
     const sameNameLrcPath = `${withoutExtension(localPath)}.lrc`;
-    let existingLyric = '';
-    try {
-      const content = await readTextFile(sameNameLrcPath);
-      if (content) existingLyric = content;
-    } catch {
-      // No local lyric yet.
-    }
+    const existingLyric = await readLocalLrcText(localPath);
 
     try {
       const source = getDefaultSearchSource();
