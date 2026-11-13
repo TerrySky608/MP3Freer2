@@ -25,6 +25,7 @@ import {
   saveTextFile,
   readTextFileFromLocal,
   readBinaryFile,
+  getLocalAudioStreamUrl,
 } from '../services/rustBridge';
 import { useToast } from './ToastContext';
 import { storage, StorageKeys } from '../services/storage';
@@ -263,6 +264,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const playSessionIdRef = useRef<number>(0);
   const onCanPlayRef = useRef<any>(null);
   const autoSkipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 连续加载/播放失败次数：用于单曲或全列表异常时熔断自动跳过，防止无限循环 */
+  const consecutiveErrorCountRef = useRef<number>(0);
   /** 用户/逻辑期望播放；切歌时 audio.load() 会误触 pause，不能靠 pause 事件清掉它 */
   const playIntentRef = useRef<boolean>(false);
   /** 为 true 时忽略 audio 的 pause 事件同步（切歌 pause/load 期间） */
@@ -764,9 +767,20 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * 核心切歌方法：直接触发 loadSongDetails，无需经过 React 渲染帧被动调度，
    * 彻底解决手机锁屏/后台休眠期间 React useEffect 调度被挂起导致的连播中断。
    */
-  const playSongAtIndex = (targetIndex: number, options: { forceReplay?: boolean; startPosition?: number } = {}) => {
+  const playSongAtIndex = (
+    targetIndex: number,
+    options: { forceReplay?: boolean; startPosition?: number; fromAutoSkip?: boolean } = {},
+  ) => {
     const pl = playlistRef.current;
     if (pl.length === 0 || targetIndex < 0 || targetIndex >= pl.length) return;
+
+    if (!options.fromAutoSkip) {
+      consecutiveErrorCountRef.current = 0;
+      if (autoSkipTimerRef.current) {
+        clearTimeout(autoSkipTimerRef.current);
+        autoSkipTimerRef.current = null;
+      }
+    }
 
     const targetSong = pl[targetIndex];
     const isSameIndex = targetIndex === playIndexRef.current;
@@ -808,13 +822,28 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [playIndex, playlist.length]);
 
-  const scheduleAutoSkip = (reason: string) => {
-    if (autoSkipTimerRef.current) return;
-    console.log(`Auto-skipping to next song (${reason})...`);
+  const scheduleAutoSkip = (reason: string): boolean => {
+    if (autoSkipTimerRef.current) return true;
+    consecutiveErrorCountRef.current += 1;
+    const maxConsecutiveErrors = Math.max(1, playlistRef.current.length);
+    if (consecutiveErrorCountRef.current >= maxConsecutiveErrors) {
+      console.warn(
+        `Auto-skip halted after ${consecutiveErrorCountRef.current} consecutive error(s) (${reason}).`,
+      );
+      playIntentRef.current = false;
+      isPlayingRef.current = false;
+      playbackActions.setIsPlaying(false);
+      return false;
+    }
+
+    console.log(
+      `Auto-skipping to next song (${reason}, consecutive errors: ${consecutiveErrorCountRef.current}/${maxConsecutiveErrors})...`,
+    );
     autoSkipTimerRef.current = setTimeout(() => {
       autoSkipTimerRef.current = null;
-      handleSongEnded();
+      handleSongEnded({ fromAutoSkip: true });
     }, 2000);
+    return true;
   };
 
   const verifyLocalFileExists = async (filePath?: string | null): Promise<string | null> => {
@@ -823,13 +852,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return found ? filePath : null;
   };
 
-  /**
-   * 将本地音频转换为原生媒体管道支持的 Blob URL：
-   * 避开 Tauri 自定义 asset 协议的 1MB 切片截断限制与 Range 请求缺陷，
-   * 确保整首歌完全在内存中畅播、拖拽 seek 零延迟秒响。
-   */
-  const resolveLocalAudioUrl = async (filePath?: string | null): Promise<string | null> => {
-    if (!isTauri || !filePath) return null;
+  /** 读取本地音频并转为 Blob URL（作为本机 HTTP 流失败时的降级兜底） */
+  const resolveLocalAudioAsBlobUrl = async (filePath: string): Promise<string | null> => {
     try {
       const buffer = await readBinaryFile(filePath);
       if (buffer && buffer.byteLength > 0) {
@@ -839,16 +863,40 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           flac: 'audio/flac',
           wav: 'audio/wav',
           ogg: 'audio/ogg',
+          opus: 'audio/opus',
           m4a: 'audio/mp4',
           aac: 'audio/aac',
+          webm: 'audio/webm',
+          wma: 'audio/x-ms-wma',
         };
         const mime = mimeMap[ext || ''] || 'audio/mpeg';
         const blob = new Blob([buffer], { type: mime });
         return URL.createObjectURL(blob);
       }
     } catch (err) {
-      console.warn('[BlobAudio] readBinaryFile failed, fallback to convertFileSrc:', err);
+      console.warn('[BlobAudio] readBinaryFile failed:', err);
     }
+    return null;
+  };
+
+  /**
+   * 将本地音频转换为可自由 Range 拖拽的播放地址：
+   * 1. 首选 Rust 本机回环 HTTP Range 流媒体服务（零全量内存拷贝，秒开且支持任意拖拽进度条）；
+   * 2. 降级为 readBinaryFile + Blob URL（已放行 CSP blob: media-src）；
+   * 3. 最终兜底 Tauri convertFileSrc。
+   */
+  const resolveLocalAudioUrl = async (filePath?: string | null): Promise<string | null> => {
+    if (!isTauri || !filePath) return null;
+    try {
+      const streamUrl = await getLocalAudioStreamUrl(filePath);
+      if (streamUrl) return streamUrl;
+    } catch (err) {
+      console.warn('[LocalStream] getLocalAudioStreamUrl failed, fallback to Blob:', err);
+    }
+
+    const blobUrl = await resolveLocalAudioAsBlobUrl(filePath);
+    if (blobUrl) return blobUrl;
+
     try {
       return convertFileSrc(filePath);
     } catch {
@@ -994,22 +1042,16 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       let playUrl: string | null = null;
       let activeSong: Song = song;
 
-      // 1. 优先使用本地已下载音频（原生 Blob URL，零流量秒开且无截断），不存在时再解析在线音频直链
+      // 1. 优先使用本地已下载音频（首选本机 HTTP Range 流媒体，降级为 Blob URL），不存在时再解析在线音频直链
       if (usedLocalMatch && matchedLocalPath) {
         playUrl = await resolveLocalAudioUrl(matchedLocalPath);
         if (!playUrl) {
           usedLocalMatch = false;
         }
       }
-      
-      if (!playUrl) {
-        if (activeSong.isLocal) {
-          const localPath = activeSong.localPath || activeSong.url || '';
-          toast.error(`本地歌曲文件不存在，无法播放：\n${localPath || activeSong.name}`);
-          playUrl = null;
-        } else {
-          playUrl = await resolveOnlinePlayUrl(activeSong, { allowExpiredFallback: true });
-        }
+
+      if (!playUrl && !activeSong.isLocal) {
+        playUrl = await resolveOnlinePlayUrl(activeSong, { allowExpiredFallback: true });
       }
 
       if (currentSession !== playSessionIdRef.current) {
@@ -1043,12 +1085,25 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       if (!playUrl) {
-        toast.error(`全网各音源平台均无法获取播放链接，即将自动跳过...\n\n歌曲：${activeSong.name}\n该歌曲可能为全网 VIP 或无版权，请稍后重试。`);
         playIntentRef.current = false;
         isPlayingRef.current = false;
         playbackActions.setIsPlaying(false);
         releasePauseSuppress();
-        scheduleAutoSkip('empty playUrl');
+        const willAutoSkip = scheduleAutoSkip('empty playUrl');
+        if (activeSong.isLocal) {
+          const localPath = activeSong.localPath || activeSong.url || '';
+          toast.error(
+            willAutoSkip
+              ? `本地歌曲文件不存在，即将跳过：\n${localPath || activeSong.name}`
+              : `本地歌曲文件不存在，已停止自动重试：\n${localPath || activeSong.name}`,
+          );
+        } else {
+          toast.error(
+            willAutoSkip
+              ? `全网各音源平台均无法获取播放链接，即将自动跳过...\n\n歌曲：${activeSong.name}\n该歌曲可能为全网 VIP 或无版权，请稍后重试。`
+              : `无法获取播放链接，已停止自动重试：\n${activeSong.name}`,
+          );
+        }
         return;
       }
 
@@ -1155,6 +1210,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         playbackActions.setIsPlaying(true);
         audio.play()
           .then(() => {
+            consecutiveErrorCountRef.current = 0;
             playIntentRef.current = true;
             isPlayingRef.current = true;
             playbackActions.setIsPlaying(true);
@@ -1190,10 +1246,37 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       let candidateUrls: string[] = [];
       let candidateIndex = 0;
+      let attemptedLocalBlobFallback = false;
 
       const onError = () => {
         if (currentSession !== playSessionIdRef.current) return;
         void (async () => {
+          const localTargetPath = matchedLocalPath || activeSong.localPath || (activeSong.isLocal ? activeSong.url : '');
+          if (
+            activeSong.isLocal &&
+            localTargetPath &&
+            !attemptedLocalBlobFallback &&
+            audio.src.startsWith('http://127.0.0.1:')
+          ) {
+            attemptedLocalBlobFallback = true;
+            try {
+              const blobUrl = await resolveLocalAudioAsBlobUrl(localTargetPath);
+              if (currentSession !== playSessionIdRef.current) return;
+              if (blobUrl) {
+                console.warn('[LocalStream] 本机流加载失败，自动降级为 Blob 播放:', localTargetPath);
+                revokeActiveBlobUrl();
+                activeBlobUrlRef.current = blobUrl;
+                startedPlayback = false;
+                audio.removeAttribute('src');
+                audio.src = blobUrl;
+                audio.load();
+                return;
+              }
+            } catch (fallbackErr) {
+              console.warn('[LocalStream] Blob 降级失败:', fallbackErr);
+            }
+          }
+
           if (!activeSong.isLocal) {
             try {
               // 若在线歌曲优先播放本地文件失败，自动降级回在线首选直链
@@ -1266,16 +1349,24 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             }
           }
           console.error('Audio playback error:', audio.error);
-          if (activeSong.isLocal) {
-            toast.error(`本地音频加载失败，即将跳过：\n${activeSong.localPath || activeSong.name}`);
-          } else {
-            toast.error(`音频流加载失败(Error Code: ${audio.error?.code})，已尝试全网所有备选音源，即将自动跳过下一首。`);
-          }
           playIntentRef.current = false;
           isPlayingRef.current = false;
           playbackActions.setIsPlaying(false);
           releasePauseSuppress();
-          scheduleAutoSkip('audio error');
+          const willAutoSkip = scheduleAutoSkip('audio error');
+          if (activeSong.isLocal) {
+            toast.error(
+              willAutoSkip
+                ? `本地音频加载失败，即将跳过：\n${activeSong.localPath || activeSong.name}`
+                : `本地音频加载失败，已停止自动重试：\n${activeSong.localPath || activeSong.name}`,
+            );
+          } else {
+            toast.error(
+              willAutoSkip
+                ? `音频流加载失败(Error Code: ${audio.error?.code})，已尝试全网所有备选音源，即将自动跳过下一首。`
+                : `列表内歌曲连续加载失败(Error Code: ${audio.error?.code})，已停止自动跳过。`,
+            );
+          }
         })();
       };
 
@@ -1311,12 +1402,12 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const handleSongEnded = () => {
+  const handleSongEnded = (options: { fromAutoSkip?: boolean } = {}) => {
     // ended 事件与 timeupdate 兜底都可能调用此函数，用 guard 保证只处理一次
     if (endedGuardRef.current) return;
     endedGuardRef.current = true;
     playIntentRef.current = true;
-    if (playModeRef.current === 'single-loop') {
+    if (playModeRef.current === 'single-loop' && !options.fromAutoSkip) {
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
         isPlayingRef.current = true;
@@ -1338,7 +1429,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ? Math.floor(Math.random() * pl.length)
       : (playIndexRef.current + 1) % pl.length;
 
-    playSongAtIndex(nextIdx, { forceReplay: true });
+    playSongAtIndex(nextIdx, { forceReplay: true, fromAutoSkip: options.fromAutoSkip });
   };
 
   // 记录播放历史（去重：同一首歌 5 秒内不重复记录）
@@ -1492,6 +1583,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       isPlayingRef.current = false;
       playbackActions.setIsPlaying(false);
     } else {
+      consecutiveErrorCountRef.current = 0;
       playIntentRef.current = true;
       audio.play()
         .then(() => {

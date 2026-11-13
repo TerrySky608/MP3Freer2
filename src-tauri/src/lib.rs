@@ -3,6 +3,7 @@
 // 系统集成（全局快捷键 + 托盘）仅桌面启用，见 system_integration.rs
 
 mod commands;
+mod local_stream;
 
 #[cfg(desktop)]
 mod system_integration;
@@ -51,6 +52,7 @@ pub fn run() {
                 commands::save_text_file,
                 commands::read_text_file,
                 commands::read_binary_file,
+                local_stream::get_local_audio_stream_url,
                 commands::toggle_lyric_overlay,
                 commands::set_lyric_overlay_lock,
                 commands::toggle_lyric_overlay_lock,
@@ -108,6 +110,7 @@ pub fn run() {
                 commands::save_text_file,
                 commands::read_text_file,
                 commands::read_binary_file,
+                local_stream::get_local_audio_stream_url,
                 commands::toggle_lyric_overlay,
                 commands::set_lyric_overlay_lock,
                 commands::toggle_lyric_overlay_lock,

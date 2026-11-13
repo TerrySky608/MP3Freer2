@@ -76,9 +76,14 @@ export async function readTextFileFromLocal(filePath: string): Promise<string> {
   return invoke<string>('read_text_file', { filePath });
 }
 
-/** 读取二进制文件（用于本地音频全量秒开及避开 asset 协议的 Range 截断限制） */
+/** 读取二进制文件（用于本地音频全量读取兜底） */
 export async function readBinaryFile(filePath: string): Promise<ArrayBuffer> {
   return invoke<ArrayBuffer>('read_binary_file', { filePath });
+}
+
+/** 获取本机回环 HTTP Range 流媒体播放地址（支持秒开与任意拖拽进度条，避免全量内存复制） */
+export async function getLocalAudioStreamUrl(filePath: string): Promise<string> {
+  return invoke<string>('get_local_audio_stream_url', { filePath });
 }
 
 /**
