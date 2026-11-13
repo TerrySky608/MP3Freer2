@@ -6,7 +6,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager};
 #[cfg(desktop)]
 use tauri::Emitter;
-use tauri::ipc::Channel;
+use tauri::ipc::{Channel, Response};
 // lofty 0.21：properties/primary_tag/first_tag 是 trait 方法，必须显式引入
 // TaggedFileExt 提供 primary_tag/first_tag，AudioFile 提供 properties
 // Accessor 提供 tag.title()/artist()/album()
@@ -216,6 +216,14 @@ pub fn read_text_file(file_path: String) -> Result<String, String> {
     let bytes = std::fs::read(Path::new(&file_path))
         .map_err(|e| format!("读取文件失败: {}", e))?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// 读取二进制文件（用于本地音频全量秒开及避开 asset 协议的 Range 截断限制）
+#[tauri::command]
+pub fn read_binary_file(file_path: String) -> Result<Response, String> {
+    let bytes = std::fs::read(Path::new(&file_path))
+        .map_err(|e| format!("读取二进制文件失败: {}", e))?;
+    Ok(Response::new(bytes))
 }
 
 fn detect_audio_extension(content_type: Option<&str>, url: &str, fallback_ext: &str) -> String {

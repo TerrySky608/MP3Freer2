@@ -24,6 +24,7 @@ import {
   listAudioFilesInDir,
   saveTextFile,
   readTextFileFromLocal,
+  readBinaryFile,
 } from '../services/rustBridge';
 import { useToast } from './ToastContext';
 import { storage, StorageKeys } from '../services/storage';
@@ -275,6 +276,17 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   /** 后台隐式音频预缓冲通道：仅预缓冲紧随其后的下一首，切歌秒开 */
   const preloadAudioRef = useRef<HTMLAudioElement | null>(null);
   const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 当前正在播放的本地音频 Blob URL，切歌或卸载时及时回收内存 */
+  const activeBlobUrlRef = useRef<string | null>(null);
+
+  const revokeActiveBlobUrl = () => {
+    if (activeBlobUrlRef.current) {
+      try {
+        URL.revokeObjectURL(activeBlobUrlRef.current);
+      } catch (_) {}
+      activeBlobUrlRef.current = null;
+    }
+  };
 
   useEffect(() => {
     if (!preloadAudioRef.current && typeof window !== 'undefined') {
@@ -524,6 +536,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         window.removeEventListener('beforeunload', onBeforeUnload);
       }
       audio.pause();
+      revokeActiveBlobUrl();
       if (autoSkipTimerRef.current) clearTimeout(autoSkipTimerRef.current);
       clearTimeout(startupAutoSyncTimer);
     };
@@ -588,7 +601,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           let preUrl: string | null = null;
           const matchedLocalPath = await resolveExistingLocalAudioFile(currentSong);
           if (matchedLocalPath) {
-            preUrl = convertFileSrc(matchedLocalPath);
+            preUrl = await resolveLocalAudioUrl(matchedLocalPath);
           } else if (!currentSong.isLocal) {
             preUrl = await resolveOnlinePlayUrl(currentSong, { allowExpiredFallback: true });
           }
@@ -596,6 +609,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           if (preUrl && audioRef.current && !audioRef.current.src && !isPlayingRef.current) {
             const targetAudio = audioRef.current;
             targetAudio.src = preUrl;
+            if (preUrl.startsWith('blob:')) {
+              activeBlobUrlRef.current = preUrl;
+            }
             const savedPos = lastSavedProgressRef.current || parseFloat(storage.getString(StorageKeys.LAST_PLAY_POSITION) || '0');
             const applyPositionAndResume = () => {
               if (savedPos > 0) {
@@ -807,6 +823,39 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return found ? filePath : null;
   };
 
+  /**
+   * 将本地音频转换为原生媒体管道支持的 Blob URL：
+   * 避开 Tauri 自定义 asset 协议的 1MB 切片截断限制与 Range 请求缺陷，
+   * 确保整首歌完全在内存中畅播、拖拽 seek 零延迟秒响。
+   */
+  const resolveLocalAudioUrl = async (filePath?: string | null): Promise<string | null> => {
+    if (!isTauri || !filePath) return null;
+    try {
+      const buffer = await readBinaryFile(filePath);
+      if (buffer && buffer.byteLength > 0) {
+        const ext = filePath.split('.').pop()?.toLowerCase();
+        const mimeMap: Record<string, string> = {
+          mp3: 'audio/mpeg',
+          flac: 'audio/flac',
+          wav: 'audio/wav',
+          ogg: 'audio/ogg',
+          m4a: 'audio/mp4',
+          aac: 'audio/aac',
+        };
+        const mime = mimeMap[ext || ''] || 'audio/mpeg';
+        const blob = new Blob([buffer], { type: mime });
+        return URL.createObjectURL(blob);
+      }
+    } catch (err) {
+      console.warn('[BlobAudio] readBinaryFile failed, fallback to convertFileSrc:', err);
+    }
+    try {
+      return convertFileSrc(filePath);
+    } catch {
+      return null;
+    }
+  };
+
   /** 从与音频同名的 .lrc 文件读取本地歌词（走 Rust 命令，支持自定义路径与 Android 公共目录） */
   const readLocalLrcText = async (audioFilePath?: string | null): Promise<string> => {
     if (!isTauri || !audioFilePath) return '';
@@ -910,6 +959,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       audio.currentTime = 0;
       audio.removeAttribute('src');
       audio.load();
+      revokeActiveBlobUrl();
     } catch (_e) {}
 
     // 整段加载期间忽略 pause 同步：pause()/换 src/WebAudio 初始化都可能触发 pause
@@ -944,15 +994,22 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       let playUrl: string | null = null;
       let activeSong: Song = song;
 
-      // 1. 优先使用本地已下载音频（零流量秒开），不存在时再解析在线音频直链
+      // 1. 优先使用本地已下载音频（原生 Blob URL，零流量秒开且无截断），不存在时再解析在线音频直链
       if (usedLocalMatch && matchedLocalPath) {
-        playUrl = convertFileSrc(matchedLocalPath);
-      } else if (activeSong.isLocal) {
-        const localPath = activeSong.localPath || activeSong.url || '';
-        toast.error(`本地歌曲文件不存在，无法播放：\n${localPath || activeSong.name}`);
-        playUrl = null;
-      } else {
-        playUrl = await resolveOnlinePlayUrl(activeSong, { allowExpiredFallback: true });
+        playUrl = await resolveLocalAudioUrl(matchedLocalPath);
+        if (!playUrl) {
+          usedLocalMatch = false;
+        }
+      }
+      
+      if (!playUrl) {
+        if (activeSong.isLocal) {
+          const localPath = activeSong.localPath || activeSong.url || '';
+          toast.error(`本地歌曲文件不存在，无法播放：\n${localPath || activeSong.name}`);
+          playUrl = null;
+        } else {
+          playUrl = await resolveOnlinePlayUrl(activeSong, { allowExpiredFallback: true });
+        }
       }
 
       if (currentSession !== playSessionIdRef.current) {
@@ -1142,6 +1199,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               // 若在线歌曲优先播放本地文件失败，自动降级回在线首选直链
               if (usedLocalMatch) {
                 usedLocalMatch = false;
+                revokeActiveBlobUrl();
                 console.warn(`[LocalFirst] 本地文件播放失败，回退至在线音源: ${activeSong.artist} - ${activeSong.name}`);
                 const onlineUrl = await resolveOnlinePlayUrl(activeSong, { allowExpiredFallback: true });
                 if (currentSession !== playSessionIdRef.current) return;
@@ -1230,6 +1288,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // 直接给 audio 元素赋予新地址，保留已有的用户手势与前台播放授权
       if (audio.src !== playUrl) {
         audio.src = playUrl;
+      }
+      if (playUrl.startsWith('blob:')) {
+        activeBlobUrlRef.current = playUrl;
       }
 
       // 无论资源是否已在缓冲区，只要有播放意图立刻发起 play() 启动流拉取与解码

@@ -76,6 +76,11 @@ export async function readTextFileFromLocal(filePath: string): Promise<string> {
   return invoke<string>('read_text_file', { filePath });
 }
 
+/** 读取二进制文件（用于本地音频全量秒开及避开 asset 协议的 Range 截断限制） */
+export async function readBinaryFile(filePath: string): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>('read_binary_file', { filePath });
+}
+
 /**
  * 切换桌面悬浮歌词窗口的显示/隐藏
  * @returns 切换后是否可见
