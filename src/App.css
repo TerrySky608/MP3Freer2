@@ -153,6 +153,7 @@ body {
   height: 36px;
   z-index: 200;
   cursor: move;
+  transition: left 0.22s ease;
 }
 
 /* 装饰性极光背景圆 */
@@ -187,6 +188,7 @@ body {
 /* 侧边�?*/
 .sidebar {
   width: var(--sidebar-width);
+  flex-shrink: 0;
   background: rgba(10, 8, 20, 0.4);
   backdrop-filter: blur(20px);
   border-right: 1px solid var(--glass-border);
@@ -195,6 +197,8 @@ body {
   flex-direction: column;
   z-index: 10;
   height: calc(100vh - var(--player-height));
+  transition: width 0.22s ease, padding 0.22s ease;
+  overflow: hidden;
 }
 
 /* 窗口控制按钮 */
@@ -2296,12 +2300,12 @@ body.is-desktop .mobile-playlist-sheet-overlay,
 /* 移动端手机 UI 专项重构 (@media <= 768px)     */
 /* ------------------------------------------- */
 @media (max-width: 768px) {
-  :root {
+  html:not(.is-desktop) {
     --player-height: 64px;
     --mobile-nav-height: 56px;
   }
 
-  .app-container {
+  html:not(.is-desktop) .app-container {
     flex-direction: column;
     height: 100vh;
     overflow: hidden;
@@ -2309,17 +2313,17 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* 顶部桌面拖拽与控制区在手机端隐藏 */
-  .logo-area, .window-controls, .desktop-spacer, .desktop-only-btn {
+  html:not(.is-desktop) .logo-area, html:not(.is-desktop) .window-controls, html:not(.is-desktop) .desktop-spacer, html:not(.is-desktop) .desktop-only-btn {
     display: none !important;
   }
 
   /* 桌面端导航菜单隐藏 */
-  .desktop-nav-menu {
+  html:not(.is-desktop) .desktop-nav-menu {
     display: none !important;
   }
 
   /* ---------------- 底部 4 大核心 Tab 导航栏 ---------------- */
-  .sidebar {
+  html:not(.is-desktop) .sidebar {
     position: fixed;
     bottom: 0;
     left: 0;
@@ -2337,7 +2341,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     align-items: center;
   }
 
-  .mobile-nav-menu {
+  html:not(.is-desktop) .mobile-nav-menu {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
@@ -2352,7 +2356,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     list-style: none;
   }
 
-  .mobile-nav-menu .nav-item {
+  html:not(.is-desktop) .mobile-nav-menu .nav-item {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -2372,23 +2376,23 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     cursor: pointer;
   }
 
-  .mobile-nav-menu .nav-item span {
+  html:not(.is-desktop) .mobile-nav-menu .nav-item span {
     display: block !important;
     font-size: 10px;
     line-height: 1;
   }
 
-  .mobile-nav-menu .nav-item.active {
+  html:not(.is-desktop) .mobile-nav-menu .nav-item.active {
     color: var(--primary-hover);
   }
 
-  .mobile-nav-menu .nav-item.active svg {
+  html:not(.is-desktop) .mobile-nav-menu .nav-item.active svg {
     transform: scale(1.1);
     color: var(--primary-hover);
   }
 
   /* ---------------- 底部悬浮迷你播放条 ---------------- */
-  .player-bar {
+  html:not(.is-desktop) .player-bar {
     position: fixed;
     bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px));
     left: 8px;
@@ -2410,7 +2414,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* 迷你播放条顶部进度条：加粗到 3px 并可点击粗调进度 */
-  .mobile-player-progress-bg {
+  html:not(.is-desktop) .mobile-player-progress-bg {
     display: block !important;
     position: absolute;
     top: 0;
@@ -2425,7 +2429,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* 扩大进度条点击热区（上下各延伸 8px），小屏也能精准点中 */
-  .mobile-player-progress-bg::before {
+  html:not(.is-desktop) .mobile-player-progress-bg::before {
     content: '';
     position: absolute;
     left: 0;
@@ -2434,14 +2438,14 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     bottom: -8px;
   }
 
-  .mobile-player-progress-fill {
+  html:not(.is-desktop) .mobile-player-progress-fill {
     height: 100%;
     background: var(--primary-gradient);
     border-radius: 2px;
     transition: width 0.3s linear;
   }
 
-  .player-left {
+  html:not(.is-desktop) .player-left {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -2449,19 +2453,19 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     min-width: 0;
   }
 
-  .player-cover-container {
+  html:not(.is-desktop) .player-cover-container {
     width: 44px;
     height: 44px;
     flex-shrink: 0;
   }
 
-  .player-cover {
+  html:not(.is-desktop) .player-cover {
     width: 44px;
     height: 44px;
     border-radius: 10px;
   }
 
-  .player-info {
+  html:not(.is-desktop) .player-info {
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -2469,21 +2473,21 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     overflow: hidden;
   }
 
-  .player-title-wrap {
+  html:not(.is-desktop) .player-title-wrap {
     max-width: 125px;
     overflow: hidden;
     white-space: nowrap;
     position: relative;
   }
 
-  .player-title {
+  html:not(.is-desktop) .player-title {
     display: inline-block;
     font-size: 13px;
     font-weight: 600;
     white-space: nowrap;
   }
 
-  .player-title.marquee-scroll {
+  html:not(.is-desktop) .player-title.marquee-scroll {
     animation: player-title-marquee 9s ease-in-out infinite;
   }
 
@@ -2499,7 +2503,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     }
   }
 
-  .player-artist {
+  html:not(.is-desktop) .player-artist {
     font-size: 11px;
     color: var(--text-muted);
     white-space: nowrap;
@@ -2509,7 +2513,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* 移动端迷你条顶部可拖动交互进度条（带清晰滑轨与白色滑块） */
-  .mobile-player-progress-bar {
+  html:not(.is-desktop) .mobile-player-progress-bar {
     display: block !important;
     position: absolute;
     top: -5px;
@@ -2520,7 +2524,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     z-index: 10;
   }
 
-  .mobile-player-progress-track {
+  html:not(.is-desktop) .mobile-player-progress-track {
     position: absolute;
     top: 5px;
     left: 0;
@@ -2532,14 +2536,14 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     pointer-events: none;
   }
 
-  .mobile-player-progress-fill {
+  html:not(.is-desktop) .mobile-player-progress-fill {
     height: 100%;
     background: var(--primary-gradient);
     border-radius: 4px;
     pointer-events: none;
   }
 
-  .mobile-player-progress-thumb {
+  html:not(.is-desktop) .mobile-player-progress-thumb {
     position: absolute;
     top: 50%;
     transform: translate(-50%, -50%);
@@ -2551,7 +2555,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     pointer-events: none;
   }
 
-  .mobile-player-progress-input {
+  html:not(.is-desktop) .mobile-player-progress-input {
     position: absolute;
     top: 0;
     left: 0;
@@ -2563,57 +2567,57 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     z-index: 2;
   }
 
-  .player-center {
+  html:not(.is-desktop) .player-center {
     width: auto;
     flex-shrink: 0;
   }
 
-  .player-controls {
+  html:not(.is-desktop) .player-controls {
     gap: 4px;
     display: flex;
     align-items: center;
   }
 
   /* 移动端智能歌单紧凑卡片排版 */
-  .smart-grid {
+  html:not(.is-desktop) .smart-grid {
     grid-template-columns: repeat(2, 1fr) !important;
     gap: 10px !important;
   }
-  .smart-card {
+  html:not(.is-desktop) .smart-card {
     border-radius: 10px !important;
   }
-  .smart-card-cover {
+  html:not(.is-desktop) .smart-card-cover {
     aspect-ratio: 16/9 !important;
   }
-  .smart-card-icon {
+  html:not(.is-desktop) .smart-card-icon {
     font-size: 28px !important;
   }
-  .smart-card-info {
+  html:not(.is-desktop) .smart-card-info {
     padding: 8px 10px !important;
   }
-  .smart-card-name {
+  html:not(.is-desktop) .smart-card-name {
     font-size: 13px !important;
     margin-bottom: 2px !important;
   }
-  .smart-card-desc {
+  html:not(.is-desktop) .smart-card-desc {
     font-size: 10px !important;
     margin-bottom: 4px !important;
   }
-  .smart-card-overlay {
+  html:not(.is-desktop) .smart-card-overlay {
     opacity: 1 !important;
     background: rgba(0, 0, 0, 0.25) !important;
     gap: 8px !important;
   }
-  .smart-play-btn {
+  html:not(.is-desktop) .smart-play-btn {
     width: 32px !important;
     height: 32px !important;
   }
-  .smart-add-btn {
+  html:not(.is-desktop) .smart-add-btn {
     width: 28px !important;
     height: 28px !important;
   }
 
-  .player-controls .control-btn.mobile-keep-btn {
+  html:not(.is-desktop) .player-controls .control-btn.mobile-keep-btn {
     width: 34px !important;
     height: 34px !important;
     padding: 0 !important;
@@ -2622,7 +2626,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     justify-content: center;
   }
 
-  .player-controls .control-btn.play-pause {
+  html:not(.is-desktop) .player-controls .control-btn.play-pause {
     width: 38px !important;
     height: 38px !important;
     background: var(--primary-gradient);
@@ -2631,23 +2635,23 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     box-shadow: 0 4px 12px rgba(168, 85, 247, 0.4);
   }
 
-  .progress-container {
+  html:not(.is-desktop) .progress-container {
     display: none !important;
   }
 
   /* 移动端 player-right 保留收藏按钮与播放模式按钮 */
-  .player-right {
+  html:not(.is-desktop) .player-right {
     display: flex !important;
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
   }
 
-  .player-right .mobile-hide-btn {
+  html:not(.is-desktop) .player-right .mobile-hide-btn {
     display: none !important;
   }
 
-  .player-right .control-btn.mobile-keep-btn {
+  html:not(.is-desktop) .player-right .control-btn.mobile-keep-btn {
     width: 34px !important;
     height: 34px !important;
     padding: 0 !important;
@@ -2657,7 +2661,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* ---------------- 中间主内容滚动区（顶部状态栏安全区避让，通栏窄边距） ---------------- */
-  .main-content {
+  html:not(.is-desktop) .main-content {
     width: 100vw;
     height: calc(100vh - var(--mobile-nav-height) - var(--player-height) - env(safe-area-inset-bottom, 0px) - 12px);
     flex: none;
@@ -2667,63 +2671,63 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* 移动端去掉模块卡片边框与大边距，通栏平铺最大化显示空间 */
-  .glass-card {
+  html:not(.is-desktop) .glass-card {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
     border-radius: 0 !important;
     padding: 4px 2px !important;
   }
-  .panel-header-card {
+  html:not(.is-desktop) .panel-header-card {
     padding-bottom: 8px !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
   }
-  .panel-scroll-area {
+  html:not(.is-desktop) .panel-scroll-area {
     margin-top: 6px !important;
   }
-  .discovery-view-root {
+  html:not(.is-desktop) .discovery-view-root {
     gap: 18px !important;
     padding: 6px 0 !important;
   }
-  .about-panel-root {
+  html:not(.is-desktop) .about-panel-root {
     gap: 12px !important;
   }
-  .toplist-grid {
+  html:not(.is-desktop) .toplist-grid {
     grid-template-columns: 1fr !important;
     gap: 10px !important;
   }
-  .toplist-card.glass-card {
+  html:not(.is-desktop) .toplist-card.glass-card {
     background: rgba(255, 255, 255, 0.04) !important;
     border: 1px solid rgba(255, 255, 255, 0.06) !important;
     border-radius: 12px !important;
     padding: 10px !important;
   }
-  .toplist-info {
+  html:not(.is-desktop) .toplist-info {
     margin-left: 10px !important;
   }
-  .song-list-container {
+  html:not(.is-desktop) .song-list-container {
     margin-top: 6px !important;
     gap: 4px !important;
   }
 
   /* 移动端卡片头部标题缩小 */
-  .glass-card h2 {
+  html:not(.is-desktop) .glass-card h2 {
     font-size: 16px !important;
   }
-  .glass-card h3 {
+  html:not(.is-desktop) .glass-card h3 {
     font-size: 14px !important;
   }
-  .glass-card p {
+  html:not(.is-desktop) .glass-card p {
     font-size: 12px !important;
   }
-  .about-logo-wrapper {
+  html:not(.is-desktop) .about-logo-wrapper {
     width: 48px !important;
     height: 48px !important;
     border-radius: 12px !important;
   }
 
   /* ---------------- 移动端“我的”面板分段栏 ---------------- */
-  .my-music-mobile-container .mobile-subtabs-bar {
+  html:not(.is-desktop) .my-music-mobile-container .mobile-subtabs-bar {
     display: flex !important;
     align-items: center;
     justify-content: space-between;
@@ -2732,7 +2736,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     flex-shrink: 0;
   }
 
-  .mobile-subtabs-list {
+  html:not(.is-desktop) .mobile-subtabs-list {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -2740,11 +2744,11 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     scrollbar-width: none;
     flex: 1;
   }
-  .mobile-subtabs-list::-webkit-scrollbar {
+  html:not(.is-desktop) .mobile-subtabs-list::-webkit-scrollbar {
     display: none;
   }
 
-  .mobile-subtab-btn {
+  html:not(.is-desktop) .mobile-subtab-btn {
     display: flex;
     align-items: center;
     gap: 5px;
@@ -2760,14 +2764,14 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     transition: all 0.2s;
   }
 
-  .mobile-subtab-btn.active {
+  html:not(.is-desktop) .mobile-subtab-btn.active {
     background: var(--primary-gradient);
     color: #ffffff;
     border-color: transparent;
     box-shadow: 0 2px 10px rgba(168, 85, 247, 0.3);
   }
 
-  .mobile-report-btn {
+  html:not(.is-desktop) .mobile-report-btn {
     display: flex;
     align-items: center;
     gap: 4px;
@@ -2782,7 +2786,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* ---------------- 歌曲列表行移动端排版与操作 ---------------- */
-  .song-row {
+  html:not(.is-desktop) .song-row {
     display: flex !important;
     align-items: center;
     padding: 8px 4px !important;
@@ -2792,12 +2796,12 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* 移动端全局隐藏序号列，把横向空间全部让给歌名与歌手 */
-  .song-col-index {
+  html:not(.is-desktop) .song-col-index {
     display: none !important;
   }
 
-  .song-col-info,
-  .song-row-main-info {
+  html:not(.is-desktop) .song-col-info,
+  html:not(.is-desktop) .song-row-main-info {
     flex: 1;
     min-width: 0;
     display: flex;
@@ -2805,14 +2809,14 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     gap: 2px;
   }
 
-  .song-title-row {
+  html:not(.is-desktop) .song-title-row {
     display: flex;
     align-items: center;
     gap: 6px;
     min-width: 0;
   }
 
-  .song-name {
+  html:not(.is-desktop) .song-name {
     font-size: 14px;
     font-weight: 500;
     max-width: 100% !important;
@@ -2822,15 +2826,15 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     min-width: 0;
   }
 
-  .tag-hires {
+  html:not(.is-desktop) .tag-hires {
     flex-shrink: 0;
   }
 
-  .tag-source {
+  html:not(.is-desktop) .tag-source {
     display: none;
   }
 
-  .song-artist {
+  html:not(.is-desktop) .song-artist {
     font-size: 12px;
     color: var(--text-muted);
     max-width: 100% !important;
@@ -2839,12 +2843,12 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     text-overflow: ellipsis;
   }
 
-  .song-col-album,
-  .song-col-duration {
+  html:not(.is-desktop) .song-col-album,
+  html:not(.is-desktop) .song-col-duration {
     display: none !important;
   }
 
-  .song-row-actions {
+  html:not(.is-desktop) .song-row-actions {
     display: flex !important;
     align-items: center;
     gap: 4px !important;
@@ -2853,7 +2857,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     opacity: 1 !important;
   }
 
-  .song-row-action-btn {
+  html:not(.is-desktop) .song-row-action-btn {
     width: 30px !important;
     height: 30px !important;
     padding: 0 !important;
@@ -2867,12 +2871,12 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* ---------------- 全屏歌词移动端样式 ---------------- */
-  .lyric-view-fullscreen.open {
+  html:not(.is-desktop) .lyric-view-fullscreen.open {
     display: flex;
     flex-direction: column;
   }
 
-  .mobile-lyric-header {
+  html:not(.is-desktop) .mobile-lyric-header {
     display: flex !important;
     align-items: center;
     justify-content: center;
@@ -2882,7 +2886,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     flex-shrink: 0;
   }
 
-  .mobile-lyric-title-info {
+  html:not(.is-desktop) .mobile-lyric-title-info {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -2891,7 +2895,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     padding: 0 16px;
   }
 
-  .mobile-lyric-song-name {
+  html:not(.is-desktop) .mobile-lyric-song-name {
     font-size: 16px;
     font-weight: 600;
     color: #ffffff;
@@ -2901,7 +2905,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     max-width: 100%;
   }
 
-  .mobile-lyric-song-artist {
+  html:not(.is-desktop) .mobile-lyric-song-artist {
     font-size: 12px;
     color: rgba(255, 255, 255, 0.7);
     margin-top: 2px;
@@ -2911,11 +2915,11 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     max-width: 100%;
   }
 
-  .lyric-left-half {
+  html:not(.is-desktop) .lyric-left-half {
     display: none !important;
   }
 
-  .lyric-right-half {
+  html:not(.is-desktop) .lyric-right-half {
     width: 100vw !important;
     flex: 1;
     padding: 16px 20px !important;
@@ -2923,25 +2927,25 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     flex-direction: column;
   }
 
-  .lyric-list-container {
+  html:not(.is-desktop) .lyric-list-container {
     flex: 1;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
 
-  .lyric-line {
+  html:not(.is-desktop) .lyric-line {
     font-size: 16px !important;
     line-height: 1.8;
     padding: 8px 0;
   }
 
-  .lyric-line.active {
+  html:not(.is-desktop) .lyric-line.active {
     font-size: 20px !important;
     font-weight: 600;
     color: #ffffff;
   }
 
-  .mobile-lyric-bottom-bar {
+  html:not(.is-desktop) .mobile-lyric-bottom-bar {
     position: relative;
     display: flex !important;
     flex-direction: column;
@@ -2953,28 +2957,28 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     flex-shrink: 0;
   }
 
-  .mobile-lyric-progress-wrap {
+  html:not(.is-desktop) .mobile-lyric-progress-wrap {
     display: flex;
     align-items: center;
     gap: 10px;
     width: 100%;
   }
 
-  .mobile-time-text {
+  html:not(.is-desktop) .mobile-time-text {
     font-size: 11px;
     color: rgba(255, 255, 255, 0.6);
     min-width: 36px;
     text-align: center;
   }
 
-  .mobile-lyric-btns {
+  html:not(.is-desktop) .mobile-lyric-btns {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 32px;
   }
 
-  .mobile-lyric-ctrl-btn {
+  html:not(.is-desktop) .mobile-lyric-ctrl-btn {
     background: transparent;
     border: none;
     color: #ffffff;
@@ -2982,7 +2986,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     padding: 8px;
   }
 
-  .mobile-lyric-play-btn {
+  html:not(.is-desktop) .mobile-lyric-play-btn {
     width: 54px;
     height: 54px;
     border-radius: 50%;
@@ -2997,7 +3001,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* 全屏歌词左下/右下浮动工具组（3个按钮稳稳悬浮在播放控制条上面） */
-  .mobile-lyric-corner-tools {
+  html:not(.is-desktop) .mobile-lyric-corner-tools {
     position: fixed !important;
     bottom: calc(var(--player-height) + 16px + env(safe-area-inset-bottom, 0px)) !important;
     display: flex !important;
@@ -3008,15 +3012,15 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     pointer-events: auto;
   }
-  .mobile-lyric-corner-tools.align-left {
+  html:not(.is-desktop) .mobile-lyric-corner-tools.align-left {
     left: 16px !important;
     right: auto !important;
   }
-  .mobile-lyric-corner-tools.align-right {
+  html:not(.is-desktop) .mobile-lyric-corner-tools.align-right {
     right: 16px !important;
     left: auto !important;
   }
-  .mobile-lyric-tool-btn {
+  html:not(.is-desktop) .mobile-lyric-tool-btn {
     width: 40px !important;
     height: 40px !important;
     border-radius: 50% !important;
@@ -3033,7 +3037,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* 移动端抽屉歌单 (Bottom Sheet) & 队列左滑删除动效 */
-  .mobile-playlist-sheet-overlay {
+  html:not(.is-desktop) .mobile-playlist-sheet-overlay {
     display: block !important;
     position: fixed;
     top: 0;
@@ -3044,7 +3048,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     z-index: 1000;
   }
 
-  .mobile-playlist-sheet {
+  html:not(.is-desktop) .mobile-playlist-sheet {
     position: absolute;
     bottom: 0;
     left: 0;
@@ -3059,7 +3063,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
-  .mobile-playlist-sheet-header {
+  html:not(.is-desktop) .mobile-playlist-sheet-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -3067,28 +3071,28 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
 
-  .mobile-playlist-sheet-header h3 {
+  html:not(.is-desktop) .mobile-playlist-sheet-header h3 {
     margin: 0;
     font-size: 15px;
     color: #ffffff;
   }
 
-  .mobile-playlist-sheet-close {
+  html:not(.is-desktop) .mobile-playlist-sheet-close {
     background: transparent;
     border: none;
     color: var(--text-muted);
     cursor: pointer;
   }
 
-  .mobile-playlist-sheet-list {
+  html:not(.is-desktop) .mobile-playlist-sheet-list {
     flex: 1;
     overflow-y: auto;
     padding: 8px 12px;
   }
 
   /* 单曲左滑删除与平滑消失动效 */
-  .mobile-playlist-sheet-item-wrapper,
-  .queue-item-swipe-wrapper {
+  html:not(.is-desktop) .mobile-playlist-sheet-item-wrapper,
+  html:not(.is-desktop) .queue-item-swipe-wrapper {
     position: relative;
     overflow: hidden;
     transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
@@ -3097,8 +3101,8 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     border-bottom: 1px solid rgba(255, 255, 255, 0.03);
   }
 
-  .mobile-playlist-sheet-item-wrapper.deleting,
-  .queue-item-swipe-wrapper.deleting {
+  html:not(.is-desktop) .mobile-playlist-sheet-item-wrapper.deleting,
+  html:not(.is-desktop) .queue-item-swipe-wrapper.deleting {
     opacity: 0;
     max-height: 0 !important;
     min-height: 0 !important;
@@ -3109,8 +3113,8 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     transform: scaleY(0);
   }
 
-  .mobile-playlist-sheet-item,
-  .queue-song-row {
+  html:not(.is-desktop) .mobile-playlist-sheet-item,
+  html:not(.is-desktop) .queue-song-row {
     flex: 1;
     display: flex;
     align-items: center;
@@ -3122,17 +3126,17 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     transition: transform 0.25s ease;
   }
 
-  .mobile-playlist-sheet-item.swiped,
-  .queue-song-row.swiped {
+  html:not(.is-desktop) .mobile-playlist-sheet-item.swiped,
+  html:not(.is-desktop) .queue-song-row.swiped {
     transform: translateX(-70px);
   }
 
-  .mobile-playlist-sheet-item.playing .mobile-sheet-song-name {
+  html:not(.is-desktop) .mobile-playlist-sheet-item.playing .mobile-sheet-song-name {
     color: var(--primary-hover);
     font-weight: 600;
   }
 
-  .mobile-sheet-song-name {
+  html:not(.is-desktop) .mobile-sheet-song-name {
     font-size: 14px;
     color: var(--text-main);
     flex: 1 1 auto;
@@ -3142,7 +3146,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     text-overflow: ellipsis;
   }
 
-  .mobile-sheet-song-artist {
+  html:not(.is-desktop) .mobile-sheet-song-artist {
     font-size: 12px;
     color: var(--text-muted);
     flex: 0 1 auto;
@@ -3153,7 +3157,7 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     text-align: right;
   }
 
-  .mobile-sheet-delete-btn {
+  html:not(.is-desktop) .mobile-sheet-delete-btn {
     position: absolute;
     right: 4px;
     top: 50%;
@@ -3174,55 +3178,55 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* ---------------- 搜索与卡片排版在手机端的优化 ---------------- */
-  .search-panel-content-scroll {
+  html:not(.is-desktop) .search-panel-content-scroll {
     margin-top: 8px !important;
   }
 
   /* 歌单详情页在移动端的紧凑适配 */
-  .detail-header {
+  html:not(.is-desktop) .detail-header {
     flex-direction: row !important;
     gap: 12px !important;
     align-items: center !important;
   }
 
-  .detail-cover {
+  html:not(.is-desktop) .detail-cover {
     width: 72px !important;
     height: 72px !important;
     border-radius: 10px !important;
     flex-shrink: 0 !important;
   }
 
-  .detail-info {
+  html:not(.is-desktop) .detail-info {
     flex: 1;
     min-width: 0;
   }
 
-  .detail-title {
+  html:not(.is-desktop) .detail-title {
     font-size: 15px !important;
     line-height: 1.3 !important;
     max-width: 100% !important;
     word-break: break-word !important;
   }
 
-  .detail-tag {
+  html:not(.is-desktop) .detail-tag {
     font-size: 10px !important;
     padding: 2px 6px !important;
   }
 
-  .detail-author {
+  html:not(.is-desktop) .detail-author {
     font-size: 11px !important;
   }
 
-  .detail-action-btns {
+  html:not(.is-desktop) .detail-action-btns {
     gap: 8px !important;
     margin-top: 8px !important;
   }
 
-  .playlist-action-btn .btn-text {
+  html:not(.is-desktop) .playlist-action-btn .btn-text {
     display: none !important;
   }
 
-  .playlist-action-btn {
+  html:not(.is-desktop) .playlist-action-btn {
     width: 36px !important;
     height: 36px !important;
     min-width: 36px !important;
@@ -3234,24 +3238,24 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* 歌手卡片在手机端的紧凑排版 */
-  .artist-banner {
+  html:not(.is-desktop) .artist-banner {
     padding: 10px 12px !important;
     gap: 10px !important;
     border-radius: 12px !important;
     margin-bottom: 12px !important;
   }
 
-  .artist-banner-avatar {
+  html:not(.is-desktop) .artist-banner-avatar {
     width: 48px !important;
     height: 48px !important;
   }
 
-  .artist-banner-tag {
+  html:not(.is-desktop) .artist-banner-tag {
     font-size: 10px !important;
     margin-bottom: 2px !important;
   }
 
-  .artist-banner-name {
+  html:not(.is-desktop) .artist-banner-name {
     font-size: 15px !important;
     white-space: nowrap !important;
     overflow: hidden !important;
@@ -3259,11 +3263,11 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     max-width: 100% !important;
   }
 
-  .artist-banner-fav-btn .artist-fav-text {
+  html:not(.is-desktop) .artist-banner-fav-btn .artist-fav-text {
     display: none !important;
   }
 
-  .artist-banner-fav-btn {
+  html:not(.is-desktop) .artist-banner-fav-btn {
     width: 36px !important;
     height: 36px !important;
     min-width: 36px !important;
@@ -3275,30 +3279,30 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* 收藏列表图标缩小到原有一半（每行 4 列，卡片宽 75px） */
-  .playlist-grid {
+  html:not(.is-desktop) .playlist-grid {
     grid-template-columns: repeat(auto-fill, minmax(75px, 1fr)) !important;
     gap: 8px !important;
   }
 
-  .playlist-card {
+  html:not(.is-desktop) .playlist-card {
     padding: 4px !important;
   }
 
-  .playlist-card-name {
+  html:not(.is-desktop) .playlist-card-name {
     font-size: 11px !important;
     margin-top: 6px !important;
   }
 
-  .playlist-card-author {
+  html:not(.is-desktop) .playlist-card-author {
     font-size: 9px !important;
   }
 
   /* 队列清空按钮仅保留图标 */
-  .clear-playlist-btn .btn-text {
+  html:not(.is-desktop) .clear-playlist-btn .btn-text {
     display: none !important;
   }
 
-  .clear-playlist-btn {
+  html:not(.is-desktop) .clear-playlist-btn {
     width: 34px !important;
     height: 34px !important;
     min-width: 34px !important;
@@ -3309,30 +3313,30 @@ body.is-desktop .mobile-playlist-sheet-overlay,
     justify-content: center !important;
   }
 
-  .source-selectors {
+  html:not(.is-desktop) .source-selectors {
     flex-wrap: wrap !important;
     gap: 6px !important;
   }
 
-  .source-tab {
+  html:not(.is-desktop) .source-tab {
     padding: 6px 12px !important;
     font-size: 12px !important;
   }
 
-  .search-bar-row {
+  html:not(.is-desktop) .search-bar-row {
     gap: 10px;
   }
 
-  .back-to-top-btn {
+  html:not(.is-desktop) .back-to-top-btn {
     display: none;
   }
 
-  .search-input-wrap .input-field {
+  html:not(.is-desktop) .search-input-wrap .input-field {
     height: 44px;
     font-size: 14px;
   }
 
-  .search-submit-btn {
+  html:not(.is-desktop) .search-submit-btn {
     width: 44px !important;
     height: 44px !important;
     padding: 0 !important;
@@ -3340,29 +3344,29 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   }
 
   /* ---------------- 移动端全局触控反馈与 60~120fps GPU 渲染 ---------------- */
-  .mobile-nav-menu .nav-item:active,
-  .control-btn:active,
-  .song-row:active,
-  .song-row-action-btn:active,
-  .mobile-subtab-btn:active,
-  .mobile-report-btn:active,
-  .mobile-lyric-play-btn:active,
-  .mobile-lyric-ctrl-btn:active,
-  .primary-btn:active,
-  .source-tab:active,
-  .playlist-action-btn:active,
-  .artist-banner-fav-btn:active,
-  .mobile-lyric-tool-btn:active,
-  .mobile-sheet-delete-btn:active,
-  .clear-playlist-btn:active {
+  html:not(.is-desktop) .mobile-nav-menu .nav-item:active,
+  html:not(.is-desktop) .control-btn:active,
+  html:not(.is-desktop) .song-row:active,
+  html:not(.is-desktop) .song-row-action-btn:active,
+  html:not(.is-desktop) .mobile-subtab-btn:active,
+  html:not(.is-desktop) .mobile-report-btn:active,
+  html:not(.is-desktop) .mobile-lyric-play-btn:active,
+  html:not(.is-desktop) .mobile-lyric-ctrl-btn:active,
+  html:not(.is-desktop) .primary-btn:active,
+  html:not(.is-desktop) .source-tab:active,
+  html:not(.is-desktop) .playlist-action-btn:active,
+  html:not(.is-desktop) .artist-banner-fav-btn:active,
+  html:not(.is-desktop) .mobile-lyric-tool-btn:active,
+  html:not(.is-desktop) .mobile-sheet-delete-btn:active,
+  html:not(.is-desktop) .clear-playlist-btn:active {
     transform: scale(0.94) !important;
     opacity: 0.82 !important;
     transition: transform 0.06s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.06s ease !important;
   }
 
-  .main-content,
-  .lyric-list-container,
-  .mobile-playlist-sheet-list {
+  html:not(.is-desktop) .main-content,
+  html:not(.is-desktop) .lyric-list-container,
+  html:not(.is-desktop) .mobile-playlist-sheet-list {
     transform: translateZ(0);
     -webkit-transform: translateZ(0);
     will-change: scroll-position;
@@ -4393,6 +4397,225 @@ body.is-desktop .mobile-playlist-sheet-overlay,
   pointer-events: none;
   user-select: none;
   transition: opacity 0.15s ease;
+}
+
+/* ========================================================
+   桌面端：左侧菜单栏收起 / 展开 & 窄窗口全屏歌词适配
+   ======================================================== */
+.sidebar-toggle-btn {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+.sidebar-toggle-btn:hover {
+  background: rgba(168, 85, 247, 0.22);
+  border-color: rgba(168, 85, 247, 0.45);
+  color: var(--text-main);
+}
+
+body[data-theme="light"] .sidebar-toggle-btn {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #475569;
+}
+body[data-theme="light"] .sidebar-toggle-btn:hover {
+  background: rgba(147, 51, 234, 0.12);
+  border-color: rgba(147, 51, 234, 0.3);
+  color: #0f172a;
+}
+
+html.is-desktop.sidebar-collapsed,
+body.is-desktop.sidebar-collapsed {
+  --sidebar-width: 72px;
+}
+
+html.is-desktop.sidebar-collapsed .sidebar {
+  padding: 0 8px 20px 8px;
+}
+
+html.is-desktop.sidebar-collapsed .window-controls {
+  justify-content: center;
+  gap: 5px;
+  padding: 14px 0;
+  margin-left: 0;
+}
+
+html.is-desktop.sidebar-collapsed .window-btn {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+}
+
+html.is-desktop.sidebar-collapsed .window-btn svg {
+  width: 10px;
+  height: 10px;
+}
+
+html.is-desktop.sidebar-collapsed .logo-area {
+  justify-content: center;
+  padding-left: 0;
+  margin-bottom: 24px;
+}
+
+html.is-desktop.sidebar-collapsed .logo-icon,
+html.is-desktop.sidebar-collapsed .logo-title {
+  display: none;
+}
+
+html.is-desktop.sidebar-collapsed .sidebar-toggle-btn {
+  margin-left: 0;
+  width: 36px;
+  height: 36px;
+}
+
+html.is-desktop.sidebar-collapsed .desktop-nav-menu .nav-item {
+  justify-content: center;
+  padding: 12px 0;
+  gap: 0;
+}
+
+html.is-desktop.sidebar-collapsed .desktop-nav-menu .nav-item:hover {
+  transform: none;
+}
+
+html.is-desktop.sidebar-collapsed .desktop-nav-menu .nav-item span {
+  display: none;
+}
+
+html.is-desktop.sidebar-collapsed .desktop-nav-menu .nav-item.active {
+  border-left: none;
+  box-shadow: inset 3px 0 0 var(--primary-color), inset 0 0 12px rgba(168, 85, 247, 0.08);
+}
+
+/* 桌面端窄窗：始终使用独立专辑列，隐藏行内专辑副标 */
+html.is-desktop .song-album-inline {
+  display: none !important;
+}
+
+/* 桌面全屏歌词在宽屏隐藏窄窗标题；当宽度 <= 860px 时隐藏旋转封面，全宽居中展示歌词并保留控歌栏 */
+.desktop-narrow-lyric-header {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  html.is-desktop .lyric-view-fullscreen,
+  body.is-desktop .lyric-view-fullscreen {
+    padding-bottom: var(--player-height);
+  }
+
+  html.is-desktop .lyric-left-half,
+  body.is-desktop .lyric-left-half {
+    display: none !important;
+  }
+
+  html.is-desktop .lyric-right-half,
+  body.is-desktop .lyric-right-half {
+    width: 100%;
+    padding: 44px 28px 20px 28px;
+  }
+
+  html.is-desktop .desktop-narrow-lyric-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 0 44px 12px 44px;
+    flex-shrink: 0;
+    text-align: center;
+  }
+
+  html.is-desktop .desktop-narrow-lyric-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: #ffffff;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  html.is-desktop .desktop-narrow-lyric-artist {
+    font-size: 13px;
+    color: var(--text-muted);
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  html.is-desktop .lyric-right-half .lyric-list-container {
+    flex: 1;
+    height: auto;
+    padding: 80px 0;
+  }
+
+  html.is-desktop .close-lyric-btn,
+  body.is-desktop .close-lyric-btn {
+    top: 42px;
+    left: 20px;
+    bottom: auto;
+    z-index: 210;
+  }
+
+  html.is-desktop.is-lyric-open .player-bar,
+  body.is-desktop.is-lyric-open .player-bar,
+  .is-desktop.is-lyric-open .player-bar {
+    display: flex !important;
+    z-index: 120 !important;
+  }
+}
+
+/* 桌面端较窄窗口下（<= 720px）保持底栏与内容区紧凑可用不溢出 */
+@media (max-width: 720px) {
+  html.is-desktop .main-content {
+    padding: 28px 20px;
+  }
+
+  html.is-desktop .player-bar {
+    padding: 0 12px;
+    gap: 8px;
+  }
+
+  html.is-desktop .player-left {
+    width: 28%;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  html.is-desktop .player-info {
+    min-width: 0;
+    max-width: none;
+  }
+
+  html.is-desktop .player-center {
+    width: 44%;
+    min-width: 0;
+  }
+
+  html.is-desktop .player-controls {
+    gap: 12px;
+  }
+
+  html.is-desktop .player-right {
+    width: auto;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  html.is-desktop .volume-container {
+    width: 68px;
+    gap: 4px;
+  }
 }
 
 

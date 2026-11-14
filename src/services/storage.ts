@@ -65,4 +65,5 @@ export const StorageKeys = {
   VOLUME: 'mp3freer_volume',
   SYNC_CODE: 'mp3freer_sync_code',
   SYNC_SERVER_URL: 'mp3freer_sync_server_url',
+  SIDEBAR_COLLAPSED: 'mp3freer_sidebar_collapsed',
 } as const;

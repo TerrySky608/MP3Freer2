@@ -1,16 +1,24 @@
 import React from 'react';
-import { Disc, Heart, ListMusic, Minus, Music, Search, Settings, Square, X, Keyboard, History, BarChart3, Sparkles } from 'lucide-react';
+import { Disc, Heart, ListMusic, Minus, Music, Search, Settings, Square, X, Keyboard, History, BarChart3, Sparkles, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
-const isTauri = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
+const isTauri = typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ !== undefined;
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onOpenReport: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onOpenReport }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  activeTab,
+  setActiveTab,
+  onOpenReport,
+  isCollapsed = false,
+  onToggleCollapse,
+}) => {
   const menuItems = [
     { id: 'recommend', name: '为你推荐', icon: Sparkles },
     { id: 'search', name: '音乐搜索', icon: Search },
@@ -63,6 +71,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onOpe
           <Disc size={18} className="spinning" />
         </div>
         <span className="logo-title">MP3Terry</span>
+        {onToggleCollapse && (
+          <button
+            className="sidebar-toggle-btn desktop-only-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCollapse();
+            }}
+            title={isCollapsed ? '展开菜单栏' : '收起菜单栏'}
+            aria-label={isCollapsed ? '展开菜单栏' : '收起菜单栏'}
+          >
+            {isCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
+        )}
       </div>
 
       {/* 桌面与车机宽屏导航列表 */}
@@ -74,6 +95,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onOpe
               key={item.id}
               className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
               onClick={() => setActiveTab(item.id)}
+              title={item.name}
             >
               <IconComponent size={18} />
               <span>{item.name}</span>

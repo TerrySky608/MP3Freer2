@@ -22,6 +22,7 @@ import { useToast } from './context/ToastContext';
 import { applyTheme, getSavedTheme } from './utils/themeManager';
 import { registerBackHandler } from './utils/navigationManager';
 import { isAndroid } from './utils/platform';
+import { storage, StorageKeys } from './services/storage';
 import './App.css';
 
 function MainLayout() {
@@ -37,6 +38,17 @@ function MainLayout() {
   const [isLyricOpen, setIsLyricOpen] = useState<boolean>(false);
   const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState<boolean>(false);
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() =>
+    !isAndroid() && storage.getBool(StorageKeys.SIDEBAR_COLLAPSED, false)
+  );
+
+  const toggleSidebarCollapsed = () => {
+    setIsSidebarCollapsed(prev => {
+      const next = !prev;
+      storage.setString(StorageKeys.SIDEBAR_COLLAPSED, String(next));
+      return next;
+    });
+  };
 
   const toast = useToast();
   const lastExitSwipeTimeRef = useRef<number>(0);
@@ -178,6 +190,16 @@ function MainLayout() {
     }
   }, [isLyricOpen]);
 
+  useEffect(() => {
+    if (isSidebarCollapsed && !isAndroid()) {
+      document.body.classList.add('sidebar-collapsed');
+      document.documentElement.classList.add('sidebar-collapsed');
+    } else {
+      document.body.classList.remove('sidebar-collapsed');
+      document.documentElement.classList.remove('sidebar-collapsed');
+    }
+  }, [isSidebarCollapsed]);
+
   return (
     <div className="app-container">
       <div
@@ -192,6 +214,8 @@ function MainLayout() {
         activeTab={activeTab}
         setActiveTab={handleSelectTab}
         onOpenReport={() => setIsReportOpen(true)}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={toggleSidebarCollapsed}
       />
 
       <main className="main-content">

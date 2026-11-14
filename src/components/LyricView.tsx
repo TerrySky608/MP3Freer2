@@ -353,6 +353,12 @@ export const LyricView: React.FC<LyricViewProps> = ({ isOpen, onClose }) => {
 
       {/* 右半：平滑滚动的歌词列表 */}
       <div className="lyric-right-half">
+        {!isMobileShell() && (
+          <div className="desktop-narrow-lyric-header">
+            <div className="desktop-narrow-lyric-name">{currentSong?.name || '未知曲目'}</div>
+            <div className="desktop-narrow-lyric-artist">{currentSong?.artist || '未知歌手'}</div>
+          </div>
+        )}
         <div className="lyric-list-container" ref={containerRef}>
           {lyrics.length === 0 ? (
             <div className="lyric-line" style={{ color: 'var(--text-muted)', fontSize: 16, marginTop: '20%' }}>

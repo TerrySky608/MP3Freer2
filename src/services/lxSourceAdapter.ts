@@ -1,19 +1,8 @@
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { MOLAN_SOURCE_SCRIPT } from "../sources/molanSource";
+import { universalFetch } from "./httpClient";
+import { getProxyUrl } from "../settings";
 
 const isTauri = typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ !== undefined;
-
-/**
- * 跨平台通用 HTTP 请求实现（与 musicApi 保持一致，桌面/移动端直连，Web端走代理）
- */
-async function universalFetch(url: string, options?: any): Promise<Response> {
-  if (isTauri) {
-    return await tauriFetch(url, options);
-  } else {
-    const proxyUrl = "/api/proxy?url=" + encodeURIComponent(url);
-    return await fetch(proxyUrl, options);
-  }
-}
 
 type LxRequestHandler = (params: {
   source: string;
@@ -55,15 +44,30 @@ class LxSourceEngine {
             headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
           }
 
+          const rawTimeout = Number(options?.timeout);
+          const timeoutMs = Number.isFinite(rawTimeout) && rawTimeout > 0
+            ? Math.min(Math.max(rawTimeout, 3000), 12000)
+            : 8000;
+          const reqController = new AbortController();
+          const proxyUrl = getProxyUrl();
+
           const fetchOptions: any = {
             method,
             headers,
+            signal: reqController.signal,
+            timeoutMs,
           };
+
+          if (proxyUrl) {
+            fetchOptions.proxy = { all: proxyUrl };
+          }
 
           if (options?.body) {
             fetchOptions.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
           }
 
+          // 覆盖 headers + body 读取全流程的总超时保护，确保超时后底层 Rust 请求立刻 abort 释放
+          const bodyTimer = setTimeout(() => reqController.abort(), timeoutMs);
           universalFetch(url, fetchOptions)
             .then(async (resp) => {
               const text = await resp.text();
@@ -80,7 +84,15 @@ class LxSourceEngine {
             })
             .catch((err) => {
               callback(err);
+            })
+            .finally(() => {
+              clearTimeout(bodyTimer);
             });
+
+          return () => {
+            clearTimeout(bodyTimer);
+            reqController.abort();
+          };
         },
         on: (event: string, handler: any) => {
           if (event === "request") {
@@ -186,10 +198,11 @@ class LxSourceEngine {
     const songId = song.url_id || song.id;
 
     for (const q of qualityTiers) {
+      let guardTimer: ReturnType<typeof setTimeout> | null = null;
       try {
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Timeout")), 8000)
-        );
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          guardTimer = setTimeout(() => reject(new Error("Timeout")), 9000);
+        });
 
         const parsePromise = this.requestHandler({
           source: lxPlatform,
@@ -220,6 +233,8 @@ class LxSourceEngine {
         }
       } catch (err: any) {
         // 继续尝试下一个降级音质档位
+      } finally {
+        if (guardTimer !== null) clearTimeout(guardTimer);
       }
     }
 

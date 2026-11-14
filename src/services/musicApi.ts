@@ -1,16 +1,4 @@
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-
-const isTauri = typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ !== undefined;
-
-async function universalFetch(url: string, options?: any) {
-  if (isTauri) {
-    return await tauriFetch(url, options);
-  } else {
-    let proxyUrl = "/api/proxy?url=" + encodeURIComponent(url);
-    return await fetch(proxyUrl, options);
-  }
-}
-
+import { universalFetch } from "./httpClient";
 import { getEnabledApiEndpoints, getProxyUrl, AudioQuality, getQualityBr, MUSIC_SOURCES } from '../settings';
 import { lxSourceEngine } from './lxSourceAdapter';
 import { isSameSong } from '../utils/songUtils';
@@ -18,6 +6,7 @@ import { isSameSong } from '../utils/songUtils';
 export interface FallbackSongResult {
   fallbackSong: OnlineSong;
   playUrl: string;
+  playUrls: string[];
   sourceName: string;
 }
 
@@ -100,6 +89,7 @@ async function postRequest(types: string, extraParams: Record<string, any>): Pro
 
       const fetchOptions: any = {
         method: 'GET',
+        timeoutMs: 6000,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Referer': `${endpoint}/`,
@@ -112,16 +102,7 @@ async function postRequest(types: string, extraParams: Record<string, any>): Pro
         fetchOptions.proxy = { all: proxyUrl };
       }
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-      fetchOptions.signal = controller.signal;
-
-      let response;
-      try {
-        response = await universalFetch(url.toString(), fetchOptions);
-      } finally {
-        clearTimeout(timeoutId);
-      }
+      const response = await universalFetch(url.toString(), fetchOptions);
 
       if (!response.ok) {
         throw new Error(`API error at ${endpoint}, status: ${response.status}`);
@@ -618,16 +599,13 @@ export const MusicApiService = {
         const s = sourceMap[source] || source;
         const level = levelMap[q] || 'exhigh';
         const url = 'https://musicserver.haitangw.cc/v1/music/resolve-url';
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
+
         const resp = await universalFetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ source: s, rid: songId, level }),
-          signal: controller.signal
+          timeoutMs: 3500,
         });
-        clearTimeout(timeoutId);
         if (resp.ok) {
           const resData = await resp.json();
           if (resData?.code === 0 && resData?.data?.url) {
@@ -644,7 +622,8 @@ export const MusicApiService = {
       try {
         const neteaseBr = br === '1999' || br === '999' ? '999000' : '3200000';
         const response = await universalFetch(`http://music.163.com/api/song/enhance/player/url?id=${songId}&ids=[${songId}]&br=${neteaseBr}`, {
-          headers: { 'Referer': 'http://music.163.com' }
+          headers: { 'Referer': 'http://music.163.com' },
+          timeoutMs: 5000,
         });
         if (response.ok) {
           const data = await response.json();
@@ -670,15 +649,12 @@ export const MusicApiService = {
         const domains = ['yy.zddyr.top', 'zrcdy.dpdns.org'];
         for (const domain of domains) {
           const xurl = `https://${domain}/lx/api/?source=${s}&name=${encodeURIComponent(songName)}&singer=${encodeURIComponent(singerName)}&songmid=${songId}&quality=${xq}`;
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 4000);
           try {
             const resp = await universalFetch(xurl, {
               method: 'GET',
               headers: { 'User-Agent': 'LX-Music-Mobile' },
-              signal: controller.signal
+              timeoutMs: 4000,
             });
-            clearTimeout(timeoutId);
             if (resp.ok) {
               const xData = await resp.json();
               if (xData?.code === 200 && xData?.url) {
@@ -686,8 +662,8 @@ export const MusicApiService = {
                 break;
               }
             }
-          } catch (err) {
-            clearTimeout(timeoutId);
+          } catch (_err) {
+            // 尝试下一集群域名
           }
         }
       } catch (e) {
@@ -736,14 +712,18 @@ export const MusicApiService = {
    */
   async resolveCrossPlatformFallback(
     song: { id: string; originalId?: string; name: string; artist: string; source: string; album?: string },
-    quality: AudioQuality | string = 'high'
+    quality: AudioQuality | string = 'high',
+    options: { excludeUrls?: Iterable<string>; excludeSources?: string[] } = {}
   ): Promise<FallbackSongResult | null> {
     if (!song.name || song.name === '未知歌曲') return null;
+
+    const excludedUrlSet = new Set(options.excludeUrls || []);
+    const excludedSourceSet = new Set([song.source, ...(options.excludeSources || [])]);
 
     // 候选平台排除当前原平台，并按可用率与资源丰富度排序：酷我、酷狗最全，QQ、网易云、咪咕随后
     const priorityOrder = ['kuwo', 'kugou', 'tencent', 'netease', 'migu'];
     const otherSources = MUSIC_SOURCES
-      .filter(s => s.id !== song.source)
+      .filter(s => !excludedSourceSet.has(s.id))
       .sort((a, b) => {
         const idxA = priorityOrder.indexOf(a.id);
         const idxB = priorityOrder.indexOf(b.id);
@@ -783,18 +763,19 @@ export const MusicApiService = {
 
         if (!matched) continue;
 
-        // 尝试获取该候选匹配歌曲的直链
-        const playUrl = await this.getSongUrl(matched.id, matched.source, quality, {
+        // 获取该候选匹配歌曲的全部直链候选（过滤已知失败地址，避免反复试同一个死链）
+        const playUrls = (await this.getSongUrlCandidates(matched.id, matched.source, quality, {
           name: matched.name,
           singer: matched.artist,
           artist: matched.artist,
-        });
+        })).filter(u => !excludedUrlSet.has(u));
 
-        if (playUrl) {
-          console.log(`[CrossFallback] 成功在【${targetSource.name}】匹配到可用播放直链:`, matched.name, matched.artist);
+        if (playUrls.length > 0) {
+          console.log(`[CrossFallback] 成功在【${targetSource.name}】匹配到 ${playUrls.length} 条可用直链:`, matched.name, matched.artist);
           return {
             fallbackSong: matched,
-            playUrl,
+            playUrl: playUrls[0],
+            playUrls,
             sourceName: targetSource.name,
           };
         }

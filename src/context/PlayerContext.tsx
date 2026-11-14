@@ -264,6 +264,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const playSessionIdRef = useRef<number>(0);
   const onCanPlayRef = useRef<any>(null);
   const autoSkipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioLoadWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 连续加载/播放失败次数：用于单曲或全列表异常时熔断自动跳过，防止无限循环 */
   const consecutiveErrorCountRef = useRef<number>(0);
   /** 用户/逻辑期望播放；切歌时 audio.load() 会误触 pause，不能靠 pause 事件清掉它 */
@@ -541,6 +542,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       audio.pause();
       revokeActiveBlobUrl();
       if (autoSkipTimerRef.current) clearTimeout(autoSkipTimerRef.current);
+      if (audioLoadWatchdogRef.current) clearTimeout(audioLoadWatchdogRef.current);
       clearTimeout(startupAutoSyncTimer);
     };
   }, []);
@@ -993,6 +995,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       clearTimeout(autoSkipTimerRef.current);
       autoSkipTimerRef.current = null;
     }
+    if (audioLoadWatchdogRef.current) {
+      clearTimeout(audioLoadWatchdogRef.current);
+      audioLoadWatchdogRef.current = null;
+    }
     if (onCanPlayRef.current) {
       audio.removeEventListener('canplay', onCanPlayRef.current.canplay);
       audio.removeEventListener('loadeddata', onCanPlayRef.current.canplay);
@@ -1051,7 +1057,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       if (!playUrl && !activeSong.isLocal) {
-        playUrl = await resolveOnlinePlayUrl(activeSong, { allowExpiredFallback: true });
+        playUrl = await resolveOnlinePlayUrl(activeSong);
       }
 
       if (currentSession !== playSessionIdRef.current) {
@@ -1228,14 +1234,36 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           });
       };
 
+      let mediaReady = false;
+      let handlingError = false;
+      const failedUrls = new Set<string>();
+      const failedSources = new Set<string>();
+      let candidateUrls: string[] = [];
+      let candidateIndex = 0;
+      let attemptedLocalBlobFallback = false;
+      let attemptedForceRefresh = false;
+
+      const clearLoadWatchdog = () => {
+        if (audioLoadWatchdogRef.current) {
+          clearTimeout(audioLoadWatchdogRef.current);
+          audioLoadWatchdogRef.current = null;
+        }
+      };
+
       const onCanPlay = () => {
         if (currentSession !== playSessionIdRef.current) return;
+        mediaReady = true;
+        clearLoadWatchdog();
         if (onCanPlayRef.current) {
           audio.removeEventListener('canplay', onCanPlayRef.current.canplay);
           audio.removeEventListener('loadeddata', onCanPlayRef.current.canplay);
           audio.removeEventListener('loadedmetadata', onCanPlayRef.current.canplay);
           audio.removeEventListener('error', onCanPlayRef.current.error);
           onCanPlayRef.current = null;
+        }
+        // 仅在音频确认可播放后回写有效直链缓存，避免坏链反向污染缓存
+        if (!activeSong.isLocal && !usedLocalMatch && audio.src.startsWith('http')) {
+          resourceCache.setUrl(activeSong.source, resolveOnlineApiId(activeSong), getPreferredQuality(), audio.src);
         }
         applyStartPosition();
         startPlaybackIfNeeded();
@@ -1244,12 +1272,47 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       };
 
-      let candidateUrls: string[] = [];
-      let candidateIndex = 0;
-      let attemptedLocalBlobFallback = false;
+      const armLoadWatchdog = () => {
+        clearLoadWatchdog();
+        if (!playIntentRef.current) return;
+        audioLoadWatchdogRef.current = setTimeout(() => {
+          audioLoadWatchdogRef.current = null;
+          if (currentSession !== playSessionIdRef.current || mediaReady || handlingError) return;
+          if (playIntentRef.current && audio.readyState < 2) {
+            console.warn('[AudioWatchdog] 音频加载超时，触发故障转移:', audio.src);
+            onError();
+          }
+        }, 12000);
+      };
+
+      const switchAudioCandidate = (nextSrc: string) => {
+        clearLoadWatchdog();
+        mediaReady = false;
+        handlingError = false;
+        startedPlayback = false;
+        audio.removeAttribute('src');
+        audio.src = nextSrc;
+        if (nextSrc.startsWith('blob:')) {
+          activeBlobUrlRef.current = nextSrc;
+        }
+        audio.load();
+        if (playIntentRef.current) {
+          audio.play().catch(() => {});
+        }
+        armLoadWatchdog();
+      };
 
       const onError = () => {
-        if (currentSession !== playSessionIdRef.current) return;
+        if (currentSession !== playSessionIdRef.current || handlingError) return;
+        handlingError = true;
+        clearLoadWatchdog();
+        if (audio.src && audio.src.startsWith('http')) {
+          failedUrls.add(audio.src);
+        }
+        if (!activeSong.isLocal) {
+          resourceCache.invalidateUrl(activeSong.source, resolveOnlineApiId(activeSong));
+        }
+
         void (async () => {
           const localTargetPath = matchedLocalPath || activeSong.localPath || (activeSong.isLocal ? activeSong.url : '');
           if (
@@ -1265,11 +1328,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               if (blobUrl) {
                 console.warn('[LocalStream] 本机流加载失败，自动降级为 Blob 播放:', localTargetPath);
                 revokeActiveBlobUrl();
-                activeBlobUrlRef.current = blobUrl;
-                startedPlayback = false;
-                audio.removeAttribute('src');
-                audio.src = blobUrl;
-                audio.load();
+                switchAudioCandidate(blobUrl);
                 return;
               }
             } catch (fallbackErr) {
@@ -1279,53 +1338,55 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
           if (!activeSong.isLocal) {
             try {
-              // 若在线歌曲优先播放本地文件失败，自动降级回在线首选直链
+              // 若在线歌曲优先播放本地文件失败，自动降级回在线最新直链
               if (usedLocalMatch) {
                 usedLocalMatch = false;
                 revokeActiveBlobUrl();
                 console.warn(`[LocalFirst] 本地文件播放失败，回退至在线音源: ${activeSong.artist} - ${activeSong.name}`);
-                const onlineUrl = await resolveOnlinePlayUrl(activeSong, { allowExpiredFallback: true });
+                const onlineUrl = await resolveOnlinePlayUrl(activeSong, { forceRefresh: true });
                 if (currentSession !== playSessionIdRef.current) return;
-                if (onlineUrl && onlineUrl !== audio.src) {
-                  startedPlayback = false;
-                  audio.removeAttribute('src');
-                  audio.src = onlineUrl;
-                  audio.load();
+                if (onlineUrl && !failedUrls.has(onlineUrl)) {
+                  switchAudioCandidate(onlineUrl);
                   return;
                 }
               }
 
               const apiId = resolveOnlineApiId(activeSong);
               const quality = getPreferredQuality();
-              if (candidateUrls.length === 0) {
-                candidateUrls = await MusicApiService.getSongUrlCandidates(apiId, activeSong.source, quality, {
+              if (candidateUrls.length === 0 && !attemptedForceRefresh) {
+                attemptedForceRefresh = true;
+                const fetched = await MusicApiService.getSongUrlCandidates(apiId, activeSong.source, quality, {
                   name: activeSong.name,
                   singer: activeSong.artist,
                   artist: activeSong.artist,
                 });
+                if (currentSession !== playSessionIdRef.current) return;
+                candidateUrls = fetched.filter(u => u && !failedUrls.has(u));
+                candidateIndex = 0;
               }
 
-              candidateIndex++;
               while (candidateIndex < candidateUrls.length) {
-                const nextUrl = candidateUrls[candidateIndex];
-                if (nextUrl && nextUrl !== audio.src) {
-                  console.log(`[Failover] 自动切换至同平台备选音源 #${candidateIndex + 1}`);
-                  resourceCache.setUrl(activeSong.source, apiId, quality, nextUrl);
-                  startedPlayback = false;
-                  audio.removeAttribute('src');
-                  audio.src = nextUrl;
-                  audio.load();
+                const nextUrl = candidateUrls[candidateIndex++];
+                if (nextUrl && !failedUrls.has(nextUrl)) {
+                  console.log(`[Failover] 自动切换至备选音源 #${candidateIndex}`);
+                  switchAudioCandidate(nextUrl);
                   return;
                 }
-                candidateIndex++;
               }
 
-              // 同平台所有备选直链均失败，启动跨平台自动搜索兜底
-              console.log(`[Failover] 同平台候选直链全部失败，启动跨源自动兜底: ${activeSong.artist} - ${activeSong.name}`);
-              const fallback = await MusicApiService.resolveCrossPlatformFallback(activeSong, quality);
-              if (currentSession !== playSessionIdRef.current) return;
-              if (fallback) {
-                const { fallbackSong, playUrl: fallbackUrl, sourceName } = fallback;
+              // 当前平台所有备选直链均失败，记录已耗尽平台并依次尝试未试过的跨平台音源
+              failedSources.add(activeSong.source);
+              while (true) {
+                console.log(`[Failover] 平台候选直链全部失败，启动跨源自动兜底: ${activeSong.artist} - ${activeSong.name}`);
+                const fallback = await MusicApiService.resolveCrossPlatformFallback(activeSong, quality, {
+                  excludeUrls: failedUrls,
+                  excludeSources: Array.from(failedSources),
+                });
+                if (currentSession !== playSessionIdRef.current) return;
+                if (!fallback) break;
+
+                const { fallbackSong, playUrl: fallbackUrl, playUrls: fallbackUrls, sourceName } = fallback;
+                failedSources.add(fallbackSong.source);
                 toast.success(`原音源播放受阻，已为您自动切换至【${sourceName}】继续播放`);
                 const healedSong: Song = {
                   ...activeSong,
@@ -1338,16 +1399,18 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 };
                 healSongInStorageAndState(activeSong, healedSong);
                 activeSong = healedSong;
-                startedPlayback = false;
-                audio.removeAttribute('src');
-                audio.src = fallbackUrl;
-                audio.load();
-                return;
+                candidateUrls = (fallbackUrls || [fallbackUrl]).filter(u => u && !failedUrls.has(u));
+                candidateIndex = 1;
+                if (candidateUrls[0]) {
+                  switchAudioCandidate(candidateUrls[0]);
+                  return;
+                }
               }
             } catch (err) {
               console.warn('Failover audio retry failed:', err);
             }
           }
+          handlingError = false;
           console.error('Audio playback error:', audio.error);
           playIntentRef.current = false;
           isPlayingRef.current = false;
@@ -1387,6 +1450,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // 无论资源是否已在缓冲区，只要有播放意图立刻发起 play() 启动流拉取与解码
       if (playIntentRef.current) {
         startPlaybackIfNeeded();
+        armLoadWatchdog();
       }
     } catch (err) {
       console.error('Error loading song details:', err);
@@ -1551,7 +1615,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const pl = playlistRef.current;
     const idx = pl.findIndex(s => s.id === song.id);
     if (idx >= 0) {
-      playSongAtIndex(idx);
+      // 若列表中同一首歌久置暂停或尚未激活真实播放流，强制重拉新鲜音源直链，防止复用过期 URL
+      const needForceReplay = !song.isLocal && (!audioRef.current || audioRef.current.paused || !!audioRef.current.error);
+      playSongAtIndex(idx, needForceReplay ? { forceReplay: true } : undefined);
       return;
     }
 
